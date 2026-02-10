@@ -182,6 +182,20 @@ function renderUI() {
 
 // --- Proxy & Fetching ---
 async function fetchWithProxy(url) {
+    // 1. Cloudflare Functions (Dedicated Proxy)
+    // デプロイ環境およびローカル開発（npx wrangler pages dev等）で動作
+    try {
+        const localProxyUrl = `/proxy?url=${encodeURIComponent(url)}`;
+        const response = await fetch(localProxyUrl);
+        if (response.ok) {
+            const text = await response.text();
+            if (text && text.length > 100) return text; // 正常なデータ量を期待
+        }
+    } catch (e) {
+        console.warn('Local proxy failed, falling back to public proxies.');
+    }
+
+    // 2. Public Proxies (Fallback)
     const proxies = [
         (u) => `https://corsproxy.io/?${encodeURIComponent(u)}`,
         (u) => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`
