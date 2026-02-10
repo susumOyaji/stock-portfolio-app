@@ -1,0 +1,12 @@
+{
+  "name": "stock-portfolio-app",
+  "version": "1.0.0",
+  "description": "Stock Portfolio Management App",
+  "main": "app.js",
+  "scripts": {
+    "start": "npx http-server -p 8080"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}

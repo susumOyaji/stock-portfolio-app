@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stock Portfolio Manager | 損益管理アプリ</title>
+    <meta name="description" content="保有銘柄の評価額、損益、損益率を簡単に管理・可視化できるWebアプリです。">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style-new.css">
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 2rem;">
+                <div>
+                    <h1>Stock Portfolio Manager(Scraping keywords)</h1>
+                </div>
+                <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 0.4rem;">
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <select id="update-interval"
+                            style="background: var(--glass); border: 1px solid var(--border); color: var(--text-muted); padding: 0.2rem 0.5rem; border-radius: 0.5rem; font-size: 0.7rem; cursor: pointer; outline: none;">
+                            <option value="0">更新オフ</option>
+                            <option value="1">1分</option>
+                            <option value="2" selected>2分</option>
+                            <option value="5">5分</option>
+                            <option value="10">10分</option>
+                        </select>
+                        <button id="refresh-all-btn" class="btn-icon btn-edit" title="情報を一括更新">
+                            <span id="refresh-icon">🔄</span>
+                        </button>
+                    </div>
+                    <p id="last-updated" style="font-size: 0.65rem; color: var(--text-muted);">最終更新: --:--:--</p>
+                </div>
+            </div>
+        </header>
+
+        <!-- Summary Section -->
+        <div class="summary-grid">
+            <div class="card">
+                <div class="card-label">総評価額</div>
+                <div id="total-valuation" class="card-value">¥0</div>
+            </div>
+            <div class="card">
+                <div class="card-label">合計損益</div>
+                <div id="total-profit-loss" class="card-value">¥0</div>
+            </div>
+            <div class="card">
+                <div class="card-label">総合損益率</div>
+                <div id="total-profit-rate" class="card-value">0.00%</div>
+            </div>
+        </div>
+
+        <!-- Floating Add Stock Modal -->
+        <div id="modal-overlay" class="modal-overlay">
+            <div class="card form-modal">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                    <h2 id="modal-title" style="font-size: 1.25rem;">銘柄の追加</h2>
+                    <button id="modal-close" class="btn-icon"
+                        style="border: none; background: transparent; font-size: 1.2rem; color: var(--text-muted); cursor: pointer;">✕</button>
+                </div>
+                <form id="stock-form" class="form-grid">
+                    <div class="form-group">
+                        <label for="code">銘柄コード</label>
+                        <input type="text" id="code" placeholder="例: 7203" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="name">銘柄名</label>
+                        <input type="text" id="name" placeholder="例: トヨタ自動車" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="quantity">保有数量</label>
+                        <input type="number" id="quantity" step="any" placeholder="0" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="purchase-price">取得単価 (¥)</label>
+                        <input type="number" id="purchase-price" step="any" placeholder="0.00" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="current-price">現在価格 (¥)</label>
+                        <input type="number" id="current-price" step="any" placeholder="0.00" required>
+                    </div>
+                    <div class="form-actions"
+                        style="display: flex; gap: 0.5rem; align-items: end; grid-column: 1 / -1;">
+                        <button type="submit" id="submit-btn" class="btn-add" style="flex: 1;">追加</button>
+                        <button type="button" id="cancel-btn" class="btn-delete"
+                            style="flex: 1; display: none;">キャンセル</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Portfolio List -->
+        <div class="table-container">
+            <table id="portfolio-table">
+                <thead>
+                    <tr>
+                        <th>銘柄</th>
+                        <th>保有数</th>
+                        <th>取得単価</th>
+                        <th>現在価格</th>
+                        <th>前日比</th>
+                        <th>評価額</th>
+                        <th>損益 (%)</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody id="portfolio-body">
+                    <!-- JSで動的に追加 -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Floating Action Button -->
+    <button id="add-stock-trigger" class="fab-button" title="銘柄を追加">
+        <span>+</span>
+    </button>
+
+    <script src="app.js?v=5"></script>
+</body>
+
+</html>
