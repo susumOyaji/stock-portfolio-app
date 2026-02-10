@@ -141,6 +141,9 @@ function renderUI() {
             <td>
                 <div class="stock-name">${stock.name}</div>
                 <div class="stock-code">${stock.code}</div>
+                <div style="display: flex; flex-wrap: wrap; gap: 0.2rem; margin-top: 0.4rem;">
+                    ${(stock.keywords || []).map(k => `<span class="badge">${k}</span>`).join('')}
+                </div>
             </td>
             <td>${stock.quantity.toLocaleString()}</td>
             <td>${formatCurrency(stock.purchasePrice)}</td>
@@ -294,13 +297,28 @@ async function scrapeYahooJapan(code) {
             }
         }
 
-        // 3. 時刻
+        // 3. 時刻 (価格の近くにある時刻を優先)
         let updateTime = '--:--';
-        const timeEl = doc.querySelector('time') || Array.from(doc.querySelectorAll('span, p')).find(el => /\d{2}:\d{2}/.test(el.textContent));
+        // 価格要素の親付近から time タグを探す
+        const priceArea = doc.querySelector('._3m7vS, ._3P_pZ')?.parentElement?.parentElement;
+        const timeEl = (priceArea ? priceArea.querySelector('time') : null) ||
+            doc.querySelector('time') ||
+            Array.from(doc.querySelectorAll('span, p'))
+                .filter(el => !el.closest('header')) // ヘッダー内の時計を無視
+                .find(el => /\d{2}:\d{2}/.test(el.textContent));
+
         if (timeEl) {
             const match = timeEl.textContent.match(/\d{2}:\d{2}/);
             if (match) updateTime = match[0];
         }
+
+        // 4. キーワード / テーマ (関連ワード)
+        let keywords = [];
+        const keywordEls = doc.querySelectorAll('a[href*="keyword"], a[href*="theme"]');
+        keywordEls.forEach(el => {
+            const txt = el.textContent.trim();
+            if (txt && txt.length < 15 && !keywords.includes(txt)) keywords.push(txt);
+        });
 
         if (price || name) {
             return {
@@ -309,7 +327,8 @@ async function scrapeYahooJapan(code) {
                 time: updateTime,
                 checkTime: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }),
                 dayChange: dayChange,
-                dayChangePercent: dayChangePercent
+                dayChangePercent: dayChangePercent,
+                keywords: keywords.slice(0, 5) // 最大5つ
             };
         }
     } catch (e) { console.error('Scraping error', e); }
@@ -366,6 +385,7 @@ async function refreshAllPrices() {
                 stock.dayChangePercent = result.dayChangePercent;
                 stock.checkTime = result.checkTime;
                 stock.time = result.time;
+                stock.keywords = result.keywords;
             }
         }));
         saveData();
@@ -408,7 +428,8 @@ function handleFormSubmit(e) {
         dayChange: lastFetchResult?.dayChange || (editingIndex !== null ? holdings[editingIndex].dayChange : '0'),
         dayChangePercent: lastFetchResult?.dayChangePercent || (editingIndex !== null ? holdings[editingIndex].dayChangePercent : '0%'),
         checkTime: lastFetchResult?.checkTime || (editingIndex !== null ? holdings[editingIndex].checkTime : '--:--'),
-        time: lastFetchResult?.time || (editingIndex !== null ? holdings[editingIndex].time : '--:--')
+        time: lastFetchResult?.time || (editingIndex !== null ? holdings[editingIndex].time : '--:--'),
+        keywords: lastFetchResult?.keywords || (editingIndex !== null ? holdings[editingIndex].keywords : [])
     };
 
     if (editingIndex !== null) holdings[editingIndex] = data;
