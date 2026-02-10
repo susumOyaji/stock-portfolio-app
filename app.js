@@ -146,7 +146,7 @@ function renderUI() {
             <td>${formatCurrency(stock.purchasePrice)}</td>
             <td>
                 <div class="price-current">${formatCurrency(stock.currentPrice)}</div>
-                <div style="font-size: 0.65rem; color: var(--text-muted); margin-top: 0.2rem;">${stock.checkTime || '--:--'}</div>
+                <div style="font-size: 0.65rem; color: var(--text-muted); margin-top: 0.2rem;">${stock.time || '--:--'}</div>
             </td>
             <td>
                 <div class="${(stock.dayChange || '').startsWith('+') ? 'value-positive' : (stock.dayChange || '').startsWith('-') ? 'value-negative' : ''}" style="font-weight: 600;">
@@ -365,6 +365,7 @@ async function refreshAllPrices() {
                 stock.dayChange = result.dayChange;
                 stock.dayChangePercent = result.dayChangePercent;
                 stock.checkTime = result.checkTime;
+                stock.time = result.time;
             }
         }));
         saveData();
@@ -406,7 +407,8 @@ function handleFormSubmit(e) {
         code, name, quantity, purchasePrice, currentPrice,
         dayChange: lastFetchResult?.dayChange || (editingIndex !== null ? holdings[editingIndex].dayChange : '0'),
         dayChangePercent: lastFetchResult?.dayChangePercent || (editingIndex !== null ? holdings[editingIndex].dayChangePercent : '0%'),
-        checkTime: lastFetchResult?.checkTime || (editingIndex !== null ? holdings[editingIndex].checkTime : '--:--')
+        checkTime: lastFetchResult?.checkTime || (editingIndex !== null ? holdings[editingIndex].checkTime : '--:--'),
+        time: lastFetchResult?.time || (editingIndex !== null ? holdings[editingIndex].time : '--:--')
     };
 
     if (editingIndex !== null) holdings[editingIndex] = data;
