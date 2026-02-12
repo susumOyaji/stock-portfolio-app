@@ -14,6 +14,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadData();
     renderUI();
     setupEventListeners();
+    refreshNikkeiIndex(); // 初回読み込み時に日経平均を取得
 
     // 設定された間隔で自動更新を開始
     const savedInterval = localStorage.getItem(SETTINGS_KEY) || '2';
@@ -176,7 +177,24 @@ function renderUI() {
 
     const totalPL = totalValuation - totalCost;
     const totalRate = totalCost !== 0 ? (totalPL / totalCost) * 100 : 0;
+
+    // 総評価額の前日比を合計
+    let totalDayChange = 0;
+    holdings.forEach(stock => {
+        const changeStr = (stock.dayChange || '0').replace(/[＋+]/g, '').replace(/[－-]/g, '-').replace(/,/g, '');
+        const changeVal = parseFloat(changeStr) || 0;
+        totalDayChange += changeVal * (stock.quantity || 0);
+    });
+
     document.getElementById('total-valuation').textContent = formatCurrency(totalValuation);
+
+    const tdcEl = document.getElementById('total-day-change');
+    if (tdcEl) {
+        const sign = totalDayChange >= 0 ? '+' : '';
+        tdcEl.textContent = `前日比: ${sign}${formatCurrency(totalDayChange)}`;
+        tdcEl.className = totalDayChange >= 0 ? 'value-positive' : 'value-negative';
+    }
+
     document.getElementById('total-profit-loss').textContent = (totalPL >= 0 ? '+' : '') + formatCurrency(totalPL);
     document.getElementById('total-profit-rate').textContent = (totalPL >= 0 ? '+' : '') + formatPercent(totalRate);
     document.getElementById('total-profit-loss').className = `card-value ${totalPL >= 0 ? 'value-positive' : 'value-negative'}`;
@@ -185,31 +203,34 @@ function renderUI() {
 
 // --- Proxy & Fetching ---
 async function fetchWithProxy(url) {
+    const ts = Date.now();
     // 1. Cloudflare Functions (Dedicated Proxy)
-    // デプロイ環境およびローカル開発（npx wrangler pages dev等）で動作
     try {
-        const localProxyUrl = `/proxy?url=${encodeURIComponent(url)}`;
-        const response = await fetch(localProxyUrl);
+        const localProxyUrl = `/proxy?url=${encodeURIComponent(url)}&_cb=${ts}`;
+        const response = await fetch(localProxyUrl, { cache: 'no-store' });
         if (response.ok) {
             const text = await response.text();
-            if (text && text.length > 100) return text; // 正常なデータ量を期待
+            if (text && text.length > 500) return text;
         }
     } catch (e) {
-        console.warn('Local proxy failed, falling back to public proxies.');
+        console.warn('Local proxy failed:', e);
     }
 
     // 2. Public Proxies (Fallback)
     const proxies = [
-        (u) => `https://corsproxy.io/?${encodeURIComponent(u)}`,
-        (u) => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`
+        (u) => `https://corsproxy.io/?${encodeURIComponent(u + (u.includes('?') ? '&' : '?') + '_cb=' + ts)}`,
+        (u) => `https://api.allorigins.win/get?url=${encodeURIComponent(u + (u.includes('?') ? '&' : '?') + '_cb=' + ts)}`
     ];
     for (const proxyFn of proxies) {
         try {
-            const response = await fetch(proxyFn(url));
+            const response = await fetch(proxyFn(url), { cache: 'no-store' });
             if (response.ok) {
-                return proxyFn.toString().includes('allorigins') ? (await response.json()).contents : await response.text();
+                const text = proxyFn.toString().includes('allorigins') ? (await response.json()).contents : await response.text();
+                if (text && text.length > 500) return text;
             }
-        } catch (e) { }
+        } catch (e) {
+            console.error('Public proxy failed:', e);
+        }
     }
     return null;
 }
@@ -252,12 +273,32 @@ async function scrapeYahooJapan(code) {
 
         // 1. 株価 (セレクタの優先順位を調整: リアルタイム優先)
         let price = null;
-        const priceSelectors = ['._3m7vS', '[data-field="regularMarketPrice"]', 'span[class*="StyledPrice"]', '._3P_pZ'];
+        const priceSelectors = [
+            '._3m7vS',
+            '[data-field="regularMarketPrice"]',
+            'span[class*="StyledPrice"]',
+            '._3P_pZ',
+            '[class*="price_"]',
+            '[class*="Price_price"]'
+        ];
         for (const sel of priceSelectors) {
             const el = doc.querySelector(sel);
             if (el) {
                 const match = el.textContent.replace(/,/g, '').match(/[\d.]+/);
                 if (match) { price = parseFloat(match[0]); break; }
+            }
+        }
+
+        // JSON-LD からの補完 (極めて正確)
+        if (!price || !name) {
+            const scripts = doc.querySelectorAll('script[type="application/ld+json"]');
+            for (const script of scripts) {
+                try {
+                    const data = JSON.parse(script.textContent);
+                    const item = Array.isArray(data) ? data[0] : data;
+                    if (item.offers?.price) price = parseFloat(item.offers.price);
+                    if (item.name && (!name || name === '株価・株式情報')) name = item.name;
+                } catch (e) { }
             }
         }
 
@@ -297,28 +338,99 @@ async function scrapeYahooJapan(code) {
             }
         }
 
-        // 3. 時刻 (価格の近くにある時刻を優先)
+        // 3. 市場更新時刻 (より詳細な探索)
         let updateTime = '--:--';
-        // 価格要素の親付近から time タグを探す
-        const priceArea = doc.querySelector('._3m7vS, ._3P_pZ')?.parentElement?.parentElement;
-        const timeEl = (priceArea ? priceArea.querySelector('time') : null) ||
-            doc.querySelector('time') ||
-            Array.from(doc.querySelectorAll('span, p'))
-                .filter(el => !el.closest('header')) // ヘッダー内の時計を無視
-                .find(el => /\d{2}:\d{2}/.test(el.textContent));
 
-        if (timeEl) {
-            const match = timeEl.textContent.match(/\d{2}:\d{2}/);
-            if (match) updateTime = match[0];
+        // 優先順位 1: 特定のクラス名（Yahooの仕様変更に対応）
+        // ._18i9z は時刻、._2_o8X は日付
+        const timeSelectors = [
+            'time',
+            '._18i9z',
+            '[data-field="regularMarketTime"]',
+            'span[class*="Price_time"]',
+            'span[class*="Price_date"]',
+            'span[class*="StyledPriceTime"]'
+        ];
+
+        for (const sel of timeSelectors) {
+            const el = doc.querySelector(sel);
+            if (el) {
+                // 時刻(15:00) or 日付時刻(02/12 15:00) or 漢数字を含む形式(15時30分)を抽出
+                const match = el.textContent.match(/(\d{1,2}\/\d{1,2}\s+)?\d{1,2}:\d{2}|(\d{1,2}時\d{1,2}分)|--:--/);
+                if (match) {
+                    updateTime = match[0].replace('時', ':').replace('分', '');
+                    break;
+                }
+            }
         }
 
-        // 4. キーワード / テーマ (関連ワード)
+        // 優先順位 2: もし上記で取れなかった場合、価格エリアの周辺から探す
+        if (updateTime === '--:--') {
+            const priceArea = doc.querySelector('._3m7vS, ._3P_pZ, [class*="Price_price"]')?.closest('div');
+            if (priceArea) {
+                const contextMatch = priceArea.parentElement?.textContent.match(/(\d{1,2}:\d{2})|--:--/);
+                if (contextMatch) updateTime = contextMatch[0];
+            }
+        }
+
+        // 優先順位 3: それでもダメな場合のみ、ページ全体から「リアルタイム」等の文字列と一緒に探す
+        if (updateTime === '--:--' || updateTime === '15:30') {
+            const rtEl = Array.from(doc.querySelectorAll('span, p, div'))
+                .find(el => (el.textContent.includes('リアルタイム') || el.textContent.includes('ディレイ')) && /\d{1,2}:\d{2}/.test(el.textContent));
+            if (rtEl) {
+                const match = rtEl.textContent.match(/\d{1,2}:\d{2}/);
+                if (match) updateTime = match[0];
+            }
+        }
+
+        // 4. キーワード / テーマ (メタデータ優先で抽出)
         let keywords = [];
-        const keywordEls = doc.querySelectorAll('a[href*="keyword"], a[href*="theme"]');
-        keywordEls.forEach(el => {
-            const txt = el.textContent.trim();
-            if (txt && txt.length < 15 && !keywords.includes(txt)) keywords.push(txt);
-        });
+
+        // --- 手法A: Metaタグ (keywords) から抽出 ---
+        const metaKeywords = doc.querySelector('meta[name="keywords"]')?.getAttribute('content');
+        if (metaKeywords) {
+            metaKeywords.split(/[,、]/).forEach(k => {
+                const txt = k.trim();
+                if (txt && !keywords.includes(txt) && txt.length < 15) keywords.push(txt);
+            });
+        }
+
+        // --- 手法B: JSON-LD から関連キーワードを抽出 ---
+        if (keywords.length < 3) {
+            const scripts = doc.querySelectorAll('script[type="application/ld+json"]');
+            scripts.forEach(script => {
+                try {
+                    const data = JSON.parse(script.textContent);
+                    const item = Array.isArray(data) ? data[0] : data;
+                    // BreadcrumbList や category などから抽出
+                    if (item.itemListElement) {
+                        item.itemListElement.forEach(el => {
+                            if (el.item?.name && !keywords.includes(el.item.name)) keywords.push(el.item.name);
+                        });
+                    }
+                } catch (e) { }
+            });
+        }
+
+        // --- 手法C: 従来のリンク抽出 (フォールバック) ---
+        if (keywords.length < 3) {
+            const keywordEls = doc.querySelectorAll('a[href*="keyword"], a[href*="theme"]');
+            keywordEls.forEach(el => {
+                const txt = el.textContent.trim();
+                if (txt && txt.length < 15 && !keywords.includes(txt)) keywords.push(txt);
+            });
+        }
+
+        // 重複削除と整理 (投資テーマとして意味のあるものに限定)
+        const blacklist = ['株', '株式', '株価', 'チャート', '掲示板', 'ニュース', '時系列', '一覧', '情報', '価格', '比較', '予想', '分析'];
+        keywords = keywords.filter(k => {
+            const txt = k.trim();
+            // 銘柄名そのもの、または銘柄名の一部である場合は除外
+            if (name && (name.includes(txt) || txt.includes(name))) return false;
+            // 短すぎる、またはブラックリストに含まれる一般的な言葉を除外
+            if (txt.length <= 1 && txt !== '銅') return false; // 1文字は基本除外（'銅'などの意味あるものは残す可能性ありだが一旦除外が安全）
+            return !blacklist.some(bad => txt.includes(bad));
+        }).slice(0, 5);
 
         if (price || name) {
             return {
@@ -388,12 +500,28 @@ async function refreshAllPrices() {
                 stock.keywords = result.keywords;
             }
         }));
+        await refreshNikkeiIndex(); // 日経平均も更新
         saveData();
         renderUI();
         document.getElementById('last-updated').textContent = `最終更新: ${new Date().toLocaleTimeString()}`;
     } finally {
         refreshBtn.disabled = false;
         refreshIcon.style.animation = 'none';
+    }
+}
+
+// 日経平均株価の更新
+async function refreshNikkeiIndex() {
+    const code = '^N225';
+    const result = await fetchIndividualPrice(code);
+    if (result) {
+        const priceEl = document.getElementById('nikkei-price');
+        const changeEl = document.getElementById('nikkei-change');
+        if (priceEl && changeEl) {
+            priceEl.textContent = `¥${result.price.toLocaleString()}`;
+            changeEl.textContent = `${result.dayChange} (${result.dayChangePercent})`;
+            changeEl.className = 'index-change ' + ((result.dayChange || '').startsWith('+') ? 'value-positive' : (result.dayChange || '').startsWith('-') ? 'value-negative' : '');
+        }
     }
 }
 
