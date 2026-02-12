@@ -14,7 +14,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadData();
     renderUI();
     setupEventListeners();
-    refreshNikkeiIndex(); // 初回読み込み時に日経平均を取得
+    refreshMarketIndices(); // 初回読み込み時に重要指標を取得
 
     // 設定された間隔で自動更新を開始
     const savedInterval = localStorage.getItem(SETTINGS_KEY) || '2';
@@ -195,10 +195,18 @@ function renderUI() {
         tdcEl.className = totalDayChange >= 0 ? 'value-positive' : 'value-negative';
     }
 
-    document.getElementById('total-profit-loss').textContent = (totalPL >= 0 ? '+' : '') + formatCurrency(totalPL);
-    document.getElementById('total-profit-rate').textContent = (totalPL >= 0 ? '+' : '') + formatPercent(totalRate);
-    document.getElementById('total-profit-loss').className = `card-value ${totalPL >= 0 ? 'value-positive' : 'value-negative'}`;
-    document.getElementById('total-profit-rate').className = `card-value ${totalPL >= 0 ? 'value-positive' : 'value-negative'}`;
+    const totalSign = totalPL >= 0 ? '+' : '';
+    document.getElementById('total-profit-loss').textContent = totalSign + formatCurrency(totalPL);
+
+    const tprEl = document.getElementById('total-profit-rate');
+    const plColorClass = totalPL >= 0 ? 'value-positive' : 'value-negative';
+
+    if (tprEl) {
+        tprEl.textContent = `損益率: ${totalSign}${formatPercent(totalRate)}`;
+        tprEl.className = plColorClass;
+    }
+
+    document.getElementById('total-profit-loss').className = `card-value ${plColorClass}`;
 }
 
 // --- Proxy & Fetching ---
@@ -500,7 +508,7 @@ async function refreshAllPrices() {
                 stock.keywords = result.keywords;
             }
         }));
-        await refreshNikkeiIndex(); // 日経平均も更新
+        await refreshMarketIndices(); // 日経平均と為替も更新
         saveData();
         renderUI();
         document.getElementById('last-updated').textContent = `最終更新: ${new Date().toLocaleTimeString()}`;
@@ -510,17 +518,29 @@ async function refreshAllPrices() {
     }
 }
 
-// 日経平均株価の更新
-async function refreshNikkeiIndex() {
-    const code = '^N225';
-    const result = await fetchIndividualPrice(code);
-    if (result) {
+// 市場インデックス（日経平均・為替）の更新
+async function refreshMarketIndices() {
+    // 1. 日経平均
+    const nikkeiResult = await fetchIndividualPrice('^N225');
+    if (nikkeiResult) {
         const priceEl = document.getElementById('nikkei-price');
         const changeEl = document.getElementById('nikkei-change');
         if (priceEl && changeEl) {
-            priceEl.textContent = `¥${result.price.toLocaleString()}`;
-            changeEl.textContent = `${result.dayChange} (${result.dayChangePercent})`;
-            changeEl.className = 'index-change ' + ((result.dayChange || '').startsWith('+') ? 'value-positive' : (result.dayChange || '').startsWith('-') ? 'value-negative' : '');
+            priceEl.textContent = `¥${nikkeiResult.price.toLocaleString()}`;
+            changeEl.textContent = `${nikkeiResult.dayChange} (${nikkeiResult.dayChangePercent})`;
+            changeEl.className = 'index-change ' + ((nikkeiResult.dayChange || '').startsWith('+') ? 'value-positive' : (nikkeiResult.dayChange || '').startsWith('-') ? 'value-negative' : '');
+        }
+    }
+
+    // 2. ドル/円
+    const usdjpyResult = await fetchIndividualPrice('USDJPY=X');
+    if (usdjpyResult) {
+        const priceEl = document.getElementById('usdjpy-price');
+        const changeEl = document.getElementById('usdjpy-change');
+        if (priceEl && changeEl) {
+            priceEl.textContent = usdjpyResult.price.toFixed(2);
+            changeEl.textContent = `${usdjpyResult.dayChange} (${usdjpyResult.dayChangePercent})`;
+            changeEl.className = 'index-change ' + ((usdjpyResult.dayChange || '').startsWith('+') ? 'value-positive' : (usdjpyResult.dayChange || '').startsWith('-') ? 'value-negative' : '');
         }
     }
 }

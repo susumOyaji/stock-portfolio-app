@@ -19,14 +19,7 @@
         <header>
             <div class="header-main">
                 <div class="header-info">
-                    <h1>Stock Portfolio Manager(Scraping keywords)</h1>
-                    <div id="index-bar" class="index-bar">
-                        <div class="index-item">
-                            <span class="index-label">日経平均:</span>
-                            <span id="nikkei-price" class="index-value">--,--元</span>
-                            <span id="nikkei-change" class="index-change">-- (--%)</span>
-                        </div>
-                    </div>
+                    <h1>Stock Portfolio Manager(Scraping JSON-LD/Meta Tags)</h1>
                 </div>
                 <div class="header-actions"
                     style="display: flex; flex-direction: column; align-items: flex-end; gap: 0.4rem;">
@@ -65,10 +58,17 @@
             <div class="card">
                 <div class="card-label">合計損益</div>
                 <div id="total-profit-loss" class="card-value">¥0</div>
+                <div id="total-profit-rate" style="font-size: 0.85rem; margin-top: 0.4rem; font-weight: 600;"></div>
             </div>
             <div class="card">
-                <div class="card-label">総合損益率</div>
-                <div id="total-profit-rate" class="card-value">0.00%</div>
+                <div class="card-label">日経平均</div>
+                <div id="nikkei-price" class="card-value">¥--,--</div>
+                <div id="nikkei-change" class="index-change">-- (--%)</div>
+            </div>
+            <div class="card">
+                <div class="card-label">ドル/円</div>
+                <div id="usdjpy-price" class="card-value">--.--</div>
+                <div id="usdjpy-change" class="index-change">-- (--%)</div>
             </div>
         </div>
 
