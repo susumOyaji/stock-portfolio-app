@@ -15,6 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
     renderUI();
     setupEventListeners();
     refreshMarketIndices(); // 初回読み込み時に重要指標を取得
+    refreshAllPrices();      // 初回読み込み時に全銘柄を一括更新
 
     // 設定された間隔で自動更新を開始
     const savedInterval = localStorage.getItem(SETTINGS_KEY) || '2';
