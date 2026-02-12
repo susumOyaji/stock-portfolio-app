@@ -248,6 +248,22 @@ tr:last-child td {
     color: white;
 }
 
+.btn-move {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+}
+
+.btn-move:hover:not(:disabled) {
+    background: var(--glass);
+    color: var(--text);
+}
+
+.btn-move:disabled {
+    opacity: 0.2;
+    cursor: not-allowed;
+}
+
 /* Modal Styles */
 .modal-overlay {
     position: fixed;

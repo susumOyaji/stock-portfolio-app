@@ -127,9 +127,21 @@ function calculateMetrics(stock) {
 function renderUI() {
     const tableBody = document.getElementById('portfolio-body');
     tableBody.innerHTML = '';
+
+    // 前日比（％）で降順にソートして表示
+    const sortedHoldings = [...holdings].sort((a, b) => {
+        const parsePercent = (str) => {
+            if (!str) return -999;
+            return parseFloat(str.replace(/[＋+]/g, '').replace(/[－-]/g, '-').replace('%', '')) || -999;
+        };
+        return parsePercent(b.dayChangePercent) - parsePercent(a.dayChangePercent);
+    });
+
     let totalValuation = 0, totalCost = 0;
 
-    holdings.forEach((stock, index) => {
+    sortedHoldings.forEach((stock) => {
+        // 元のholdings内での正しいインデックスを取得（編集・削除用）
+        const index = holdings.indexOf(stock);
         const metrics = calculateMetrics(stock);
         totalValuation += metrics.valuation;
         totalCost += metrics.costBasis;
@@ -591,6 +603,15 @@ function handleFormSubmit(e) {
 
 function deleteStock(index) {
     if (confirm('削除しますか？')) { holdings.splice(index, 1); saveData(); renderUI(); }
+}
+function moveStock(index, direction) {
+    const newIndex = index + direction;
+    if (newIndex < 0 || newIndex >= holdings.length) return;
+    const temp = holdings[index];
+    holdings[index] = holdings[newIndex];
+    holdings[newIndex] = temp;
+    saveData();
+    renderUI();
 }
 function editStock(index) {
     editingIndex = index;
