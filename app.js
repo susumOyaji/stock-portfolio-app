@@ -10,19 +10,159 @@ const STORAGE_KEY = 'stock_portfolio_data';
 const SETTINGS_KEY = 'stock_portfolio_settings';
 
 // --- Initialization ---
-document.addEventListener('DOMContentLoaded', () => {
+// --- Initialization ---
+document.addEventListener('DOMContentLoaded', async () => {
     loadData();
     renderUI();
     setupEventListeners();
-    refreshMarketIndices(); // 初回読み込み時に重要指標を取得
-    refreshAllPrices();      // 初回読み込み時に全銘柄を一括更新
 
-    // 設定された間隔で自動更新を開始
+    // 市場状態を確認
+    const marketStatus = getMarketStatus();
+    updateHeaderWithMarketStatus();
+
+    // 起動時のローディング表示
+    if (holdings.length > 0) {
+        showLoadingState();
+        try {
+            await Promise.all([
+                refreshMarketIndices(),
+                refreshAllPrices()
+            ]);
+        } finally {
+            hideLoadingState();
+        }
+    } else {
+        refreshMarketIndices();
+    }
+
+    // 設定された間隔で自動更新（または待機）を開始
     const savedInterval = localStorage.getItem(SETTINGS_KEY) || '2';
     const intervalEl = document.getElementById('update-interval');
     if (intervalEl) intervalEl.value = savedInterval;
     startAutoUpdate(parseInt(savedInterval));
+
+    if (!marketStatus.isOpen) {
+        console.log(`市場は現在閉場中です（${marketStatus.label}）`);
+    }
 });
+
+// --- Market Status & Helpers ---
+function getMarketStatus() {
+    const now = new Date();
+    const day = now.getDay(); // 0:Sun, 6:Sat
+    const hour = now.getHours();
+    const minute = now.getMinutes();
+    const time = hour * 60 + minute;
+
+    // 土日
+    if (day === 0 || day === 6) {
+        return { isOpen: false, status: 'weekend', label: '休場（週末）', color: 'var(--text-muted)', icon: '📅' };
+    }
+
+    // 前場（9:00-11:30）
+    if (time >= 9 * 60 && time < 11 * 60 + 30) {
+        return { isOpen: true, status: 'morning', label: '取引中（前場）', color: 'var(--success)', icon: '📈' };
+    }
+    // 昼休み（11:30-12:30）
+    if (time >= 11 * 60 + 30 && time < 12 * 60 + 30) {
+        return { isOpen: false, status: 'lunch', label: '昼休み（前場終値）', color: 'var(--warning)', icon: '🍱' };
+    }
+    // 後場（12:30-15:00）
+    if (time >= 12 * 60 + 30 && time < 15 * 60) {
+        return { isOpen: true, status: 'afternoon', label: '取引中（後場）', color: 'var(--success)', icon: '📈' };
+    }
+    // 市場終了後
+    if (time >= 15 * 60) {
+        return { isOpen: false, status: 'closed', label: '市場終了', color: 'var(--text-muted)', icon: '🌙' };
+    }
+    // 市場開始前
+    return { isOpen: false, status: 'pre_market', label: '市場開始前', color: 'var(--text-muted)', icon: '🌅' };
+}
+
+function getDataFreshness(updateTime) {
+    if (!updateTime || updateTime === '--:--' || updateTime.includes('日')) {
+        return { isFresh: false, label: '未取得', color: 'var(--text-muted)', ageInHours: null };
+    }
+
+    const now = new Date();
+    // 時間と分を抽出 (例: "15:00")
+    const match = updateTime.match(/(\d{1,2}):(\d{2})/);
+    if (!match) return { isFresh: false, label: updateTime, color: 'var(--text-muted)' };
+
+    const [_, h, m] = match;
+    const updateDate = new Date();
+    updateDate.setHours(parseInt(h), parseInt(m), 0, 0);
+
+    // 更新時刻が未来の場合（日付またぎ）、前日とみなす
+    if (updateDate > now) {
+        updateDate.setDate(updateDate.getDate() - 1);
+    }
+
+    const ageInMs = now - updateDate;
+    const ageInHours = ageInMs / (1000 * 60 * 60);
+
+    if (ageInHours < 1) {
+        return { isFresh: true, label: `${Math.floor(ageInMs / 60000)}分前`, color: 'var(--success)', ageInHours };
+    } else if (ageInHours < 24) {
+        return { isFresh: false, label: `${Math.floor(ageInHours)}時間前`, color: 'var(--warning)', ageInHours };
+    } else {
+        return { isFresh: false, label: `${Math.floor(ageInHours / 24)}日前`, color: 'var(--danger)', ageInHours };
+    }
+}
+
+function updateHeaderWithMarketStatus() {
+    const headerInfo = document.querySelector('.header-info');
+    if (!headerInfo) return;
+
+    let badge = headerInfo.querySelector('.market-status-badge');
+    if (badge) badge.remove();
+
+    const status = getMarketStatus();
+    badge = document.createElement('div');
+    badge.className = 'market-status-badge';
+    badge.style.marginTop = '0.5rem';
+    badge.style.color = status.color;
+    badge.style.border = `1px solid ${status.color}`;
+    badge.style.background = status.isOpen ? 'rgba(16, 185, 129, 0.1)' : 'rgba(148, 163, 184, 0.1)';
+
+    let labelText = status.label;
+    // 昼休み以外で閉まっている場合のみ (最終値) を付加
+    if (!status.isOpen && status.status !== 'lunch') {
+        labelText += ' (最終値)';
+    }
+
+    badge.innerHTML = `<span>${status.icon}</span><span>${labelText}</span>`;
+    headerInfo.appendChild(badge);
+}
+
+function showLoadingState() {
+    const tableBody = document.getElementById('portfolio-body');
+    if (!tableBody) return;
+
+    // 行がなければ何もしない（初回など）
+    if (tableBody.children.length === 0) return;
+
+    // 既存のオーバーレイがあれば削除
+    const existing = tableBody.parentElement.querySelector('.loading-overlay');
+    if (existing) existing.remove();
+
+    // テーブル全体を覆うオーバーレイ
+    const overlay = document.createElement('div');
+    overlay.className = 'loading-overlay';
+    overlay.innerHTML = `<div class="loading-text">最新データを取得中...</div>`;
+
+    // table-container は relative である必要がある
+    const container = tableBody.closest('.table-container');
+    if (container) {
+        container.style.position = 'relative';
+        container.appendChild(overlay);
+    }
+}
+
+function hideLoadingState() {
+    const overlay = document.querySelector('.loading-overlay');
+    if (overlay) overlay.remove();
+}
 
 function setupEventListeners() {
     const codeInput = document.getElementById('code');
@@ -96,18 +236,53 @@ function loadData() {
 }
 function saveData() { localStorage.setItem(STORAGE_KEY, JSON.stringify(holdings)); }
 
+// 自動更新タイマーの管理
+// 市場が開いているか定期的にチェックし、開いていればデータ更新を行う
+let lastUpdateTime = 0;
+
 function startAutoUpdate(minutes) {
     if (autoUpdateTimer) {
         clearInterval(autoUpdateTimer);
         autoUpdateTimer = null;
     }
 
-    if (minutes > 0) {
-        autoUpdateTimer = setInterval(refreshAllPrices, minutes * 60 * 1000);
-        console.log(`Auto update started: every ${minutes} minutes`);
-    } else {
+    if (minutes <= 0) {
         console.log('Auto update disabled');
+        return;
     }
+
+    // 更新チェックの間隔（基本は1分ごと、ただし設定間隔がそれより短ければそれに合わせる）
+    // 市場再開を検知するために、最大でも1分間隔でチェックする
+    const checkInterval = Math.min(minutes * 60 * 1000, 60 * 1000);
+
+    // 初回実行時刻を記録
+    lastUpdateTime = Date.now();
+
+    autoUpdateTimer = setInterval(() => {
+        const now = Date.now();
+        const marketStatus = getMarketStatus();
+
+        // ヘッダーの市場状態表示は毎回更新（時計代わり）
+        updateHeaderWithMarketStatus();
+
+        // 前回の更新から、設定された間隔以上経過しているか？
+        if (now - lastUpdateTime >= minutes * 60 * 1000) {
+            if (marketStatus.isOpen) {
+                console.log('Market is open, updating prices...');
+                refreshAllPrices();
+                lastUpdateTime = now;
+            } else {
+                // 市場が閉まっている場合は更新をスキップ
+                // ただし、コンソールにはログを出して動作を確認できるようにする
+                console.log(`Market is closed (${marketStatus.status}), skipping update.`);
+
+                // 注意: lastUpdateTime は更新しない
+                // これにより、市場が開いた瞬間に（次のチェックタイミングで）即座に更新が走るようになる
+            }
+        }
+    }, checkInterval);
+
+    console.log(`Auto update started: target interval ${minutes} min (check interval ${checkInterval / 1000}s)`);
 }
 
 // --- Calculation & Logic ---
@@ -125,23 +300,50 @@ function calculateMetrics(stock) {
 }
 
 // --- UI Rendering ---
+// --- UI Rendering ---
 function renderUI() {
     const tableBody = document.getElementById('portfolio-body');
+    if (!tableBody) return;
     tableBody.innerHTML = '';
+
+    // 市場状態による警告表示
+    const marketStatus = getMarketStatus();
+
+    // 中部の警告表示を廃止（上部に統合するため、既存があれば削除のみ行う）
+    const existingWarning = document.querySelector('.market-closed-warning');
+    if (existingWarning) existingWarning.remove();
+
 
     // 前日比（％）で降順にソートして表示
     const sortedHoldings = [...holdings].sort((a, b) => {
-        const parsePercent = (str) => {
-            if (!str) return -999;
-            return parseFloat(str.replace(/[＋+]/g, '').replace(/[－-]/g, '-').replace('%', '')) || -999;
+        const parsePercent = (val) => {
+            if (val === null || val === undefined || val === '') return -Infinity;
+            // すでに数値の場合
+            if (typeof val === 'number') return val;
+
+            // 文字列の場合のクリーニング
+            const strVal = String(val);
+            // 符号、カンマ、%を除去して数値化
+            const cleanStr = strVal
+                .replace(/[＋+]/g, '')      // プラス符号を除去
+                .replace(/[－-]/g, '-')     // マイナス記号を半角ハイフンに統一
+                .replace(/,/g, '')          // カンマを除去
+                .replace(/%/g, '')          // パーセントを除去
+                .trim();
+
+            const num = parseFloat(cleanStr);
+            return isNaN(num) ? -Infinity : num;
         };
-        return parsePercent(b.dayChangePercent) - parsePercent(a.dayChangePercent);
+
+        const percentA = parsePercent(a.dayChangePercent);
+        const percentB = parsePercent(b.dayChangePercent);
+
+        return percentB - percentA;
     });
 
     let totalValuation = 0, totalCost = 0;
 
     sortedHoldings.forEach((stock) => {
-        // 元のholdings内での正しいインデックスを取得（編集・削除用）
         const index = holdings.indexOf(stock);
         const metrics = calculateMetrics(stock);
         totalValuation += metrics.valuation;
@@ -150,6 +352,11 @@ function renderUI() {
         const row = document.createElement('tr');
         const plClass = metrics.profitLoss >= 0 ? 'value-positive' : 'value-negative';
         const plSign = metrics.profitLoss >= 0 ? '+' : '';
+
+        // データ鮮度
+        const freshness = getDataFreshness(stock.time);
+        const freshnessBadge = `<span class="${freshness.isFresh ? 'badge-fresh' : (freshness.ageInHours < 24 ? 'badge-stale' : 'badge-old')}" 
+             style="font-size: 0.6rem; padding: 0.1rem 0.4rem; border-radius: 4px; border: 1px solid currentColor;">${freshness.label}</span>`;
 
         row.innerHTML = `
             <td>
@@ -163,7 +370,12 @@ function renderUI() {
             <td>${formatCurrency(stock.purchasePrice)}</td>
             <td>
                 <div class="price-current">${formatCurrency(stock.currentPrice)}</div>
-                <div style="font-size: 0.65rem; color: var(--text-muted); margin-top: 0.2rem;">${stock.time || '--:--'}</div>
+                <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.2rem;">
+                    <div style="font-size: 0.65rem; color: var(--text-muted);">${stock.time || '--:--'}</div>
+                    ${freshnessBadge}
+                </div>
+                ${!marketStatus.isOpen && freshness.ageInHours > 6 ?
+                `<div style="font-size: 0.6rem; color: var(--warning); margin-top: 0.1rem;">⚠️ 前日終値</div>` : ''}
             </td>
             <td>
                 <div class="${(stock.dayChange || '').startsWith('+') ? 'value-positive' : (stock.dayChange || '').startsWith('-') ? 'value-negative' : ''}" style="font-weight: 600;">
