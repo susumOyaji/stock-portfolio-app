@@ -58,12 +58,62 @@ h1 {
     display: block;
 }
 
+/* Market Status Badge */
+.market-status-badge {
+    position: fixed;
+    bottom: 2rem;
+    right: 9.5rem;
+    z-index: 1000;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1.5rem;
+    border-radius: 1rem;
+    font-size: 0.85rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    backdrop-filter: blur(12px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2), 0 2px 4px rgba(0, 0, 0, 0.1);
+    transition: all 0.3s ease;
+    animation: fadeInBadge 0.5s ease-out;
+}
+
+.market-status-badge:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3), 0 3px 6px rgba(0, 0, 0, 0.15);
+}
+
+.market-status-badge span:first-child {
+    font-size: 1.5rem;
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+}
+
+@keyframes fadeInBadge {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
 /* Summary Cards */
 .summary-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    /* デフォルトは折り返しあり（スマホなど） */
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
     gap: 1.5rem;
     margin-bottom: 3rem;
+}
+
+/* iPad横向き以上で4列固定 */
+@media (min-width: 1000px) {
+    .summary-grid {
+        grid-template-columns: repeat(4, 1fr);
+    }
 }
 
 .card {

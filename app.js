@@ -98,6 +98,11 @@ function getDataFreshness(updateTime) {
         updateDate.setDate(updateDate.getDate() - 1);
     }
 
+    // 土日の場合は直近の平日（金曜日）まで遡る
+    while (updateDate.getDay() === 0 || updateDate.getDay() === 6) {
+        updateDate.setDate(updateDate.getDate() - 1);
+    }
+
     const ageInMs = now - updateDate;
     const ageInHours = ageInMs / (1000 * 60 * 60);
 
@@ -111,28 +116,36 @@ function getDataFreshness(updateTime) {
 }
 
 function updateHeaderWithMarketStatus() {
-    const headerInfo = document.querySelector('.header-info');
-    if (!headerInfo) return;
-
-    let badge = headerInfo.querySelector('.market-status-badge');
+    // フローティング表示：既存のバッジを削除
+    let badge = document.querySelector('.market-status-badge');
     if (badge) badge.remove();
 
     const status = getMarketStatus();
     badge = document.createElement('div');
     badge.className = 'market-status-badge';
-    badge.style.marginTop = '0.5rem';
     badge.style.color = status.color;
-    badge.style.border = `1px solid ${status.color}`;
-    badge.style.background = status.isOpen ? 'rgba(16, 185, 129, 0.1)' : 'rgba(148, 163, 184, 0.1)';
+    badge.style.border = `2px solid ${status.color}`;
+
+    // シンプルな単色背景
+    badge.style.background = status.isOpen
+        ? 'rgba(16, 185, 129, 0.15)'
+        : 'rgba(148, 163, 184, 0.15)';
 
     let labelText = status.label;
+
+    // 市場が開いている場合、最終更新からの経過時間を表示
+    if (status.isOpen && lastFetchSuccessTime) {
+        const diffMs = Date.now() - lastFetchSuccessTime;
+        const diffMins = Math.floor(diffMs / 60000);
+        labelText += ` (${diffMins}分前)`;
+    }
     // 昼休み以外で閉まっている場合のみ (最終値) を付加
-    if (!status.isOpen && status.status !== 'lunch') {
+    else if (!status.isOpen && status.status !== 'lunch') {
         labelText += ' (最終値)';
     }
 
-    badge.innerHTML = `<span>${status.icon}</span><span>${labelText}</span>`;
-    headerInfo.appendChild(badge);
+    badge.innerHTML = `<span>${labelText}</span>`;
+    document.body.appendChild(badge);
 }
 
 function showLoadingState() {
@@ -353,10 +366,8 @@ function renderUI() {
         const plClass = metrics.profitLoss >= 0 ? 'value-positive' : 'value-negative';
         const plSign = metrics.profitLoss >= 0 ? '+' : '';
 
-        // データ鮮度
+        // データ鮮度 (バッジ表示は廃止、ヘッダーに統合)
         const freshness = getDataFreshness(stock.time);
-        const freshnessBadge = `<span class="${freshness.isFresh ? 'badge-fresh' : (freshness.ageInHours < 24 ? 'badge-stale' : 'badge-old')}" 
-             style="font-size: 0.6rem; padding: 0.1rem 0.4rem; border-radius: 4px; border: 1px solid currentColor;">${freshness.label}</span>`;
 
         row.innerHTML = `
             <td>
@@ -372,7 +383,6 @@ function renderUI() {
                 <div class="price-current">${formatCurrency(stock.currentPrice)}</div>
                 <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.2rem;">
                     <div style="font-size: 0.65rem; color: var(--text-muted);">${stock.time || '--:--'}</div>
-                    ${freshnessBadge}
                 </div>
                 ${!marketStatus.isOpen && freshness.ageInHours > 6 ?
                 `<div style="font-size: 0.6rem; color: var(--warning); margin-top: 0.1rem;">⚠️ 前日終値</div>` : ''}
@@ -507,6 +517,10 @@ async function scrapeYahooJapan(code) {
         // 1. 株価 (セレクタの優先順位を調整: リアルタイム優先)
         let price = null;
         const priceSelectors = [
+            '._3rXWJKZ',
+            '.StyledPriceText',
+            '[data-test-id="price"]',
+            'span[class*="Price__value"]',
             '._3m7vS',
             '[data-field="regularMarketPrice"]',
             'span[class*="StyledPrice"]',
@@ -514,11 +528,58 @@ async function scrapeYahooJapan(code) {
             '[class*="price_"]',
             '[class*="Price_price"]'
         ];
+
+        // 既存セレクタでの探索
         for (const sel of priceSelectors) {
             const el = doc.querySelector(sel);
             if (el) {
-                const match = el.textContent.replace(/,/g, '').match(/[\d.]+/);
-                if (match) { price = parseFloat(match[0]); break; }
+                const txt = el.textContent.replace(/,/g, '').trim();
+                const match = txt.match(/^[\d.]+$/); // 純粋な数値のみ（前日比などは除外）
+                if (match) {
+                    price = parseFloat(match[0]);
+                    break;
+                }
+            }
+        }
+
+        // --- スマート探索 (Smart Search): セレクタで見つからない場合の自動探索 ---
+        if (price === null) {
+            console.log(`[SmartSearch] Trying fallback search for ${code}...`);
+
+            // 戦略: 「現在値」や「円」といったキーワードの近くにある数値を探索
+            const keywords = ['現在値', '時価', 'リアルタイム', '円'];
+            const allElements = Array.from(doc.querySelectorAll('span, div, p, dd, strong, b'));
+
+            // キーワードを含む要素を探す
+            const keywordEls = allElements.filter(el =>
+                keywords.some(k => el.textContent.includes(k)) && el.textContent.length < 20
+            );
+
+            for (const keyEl of keywordEls) {
+                // その要素の親、兄弟、子要素から「数値のみ」のテキストを持つ要素を探す
+                // 親の兄弟（隣の列など）も探す
+                const context = keyEl.parentElement?.parentElement || keyEl.parentElement;
+                if (!context) continue;
+
+                const candidates = Array.from(context.querySelectorAll('*'))
+                    .filter(el => {
+                        const txt = el.textContent.trim().replace(/,/g, '');
+                        // 数字のみ、かつ空でない、かつ長すぎない(桁数制限)
+                        return /^[\d.]+$/.test(txt) && txt.length > 0 && txt.length < 10;
+                    });
+
+                // 数値候補が見つかったら、それを採用（最初に見つかったものを優先）
+                if (candidates.length > 0) {
+                    // 数値が大きい順（フォントサイズではなく値として）... は危険（出来高などを拾うかも）
+                    // DOMの出現順で、キーワードに近いものを採用したい。
+                    // candidates[0] は context 内で最初に見つかったもの。
+                    const val = parseFloat(candidates[0].textContent.replace(/,/g, ''));
+                    if (!isNaN(val) && val > 0) {
+                        price = val;
+                        console.log(`[SmartSearch] Found price via keyword "${keyEl.textContent}": ${price}`);
+                        break;
+                    }
+                }
             }
         }
 
@@ -713,6 +774,8 @@ async function fetchIndividualPrice(code) {
 }
 
 // --- Actions ---
+let lastFetchSuccessTime = null;
+
 async function refreshAllPrices() {
     const refreshBtn = document.getElementById('refresh-all-btn');
     const refreshIcon = document.getElementById('refresh-icon');
@@ -736,7 +799,10 @@ async function refreshAllPrices() {
         await refreshMarketIndices(); // 日経平均と為替も更新
         saveData();
         renderUI();
+
+        lastFetchSuccessTime = Date.now();
         document.getElementById('last-updated').textContent = `最終更新: ${new Date().toLocaleTimeString()}`;
+        updateHeaderWithMarketStatus(); // ヘッダーの経過時間表示を更新
     } finally {
         refreshBtn.disabled = false;
         refreshIcon.style.animation = 'none';
