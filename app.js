@@ -10,7 +10,6 @@ const STORAGE_KEY = 'stock_portfolio_data';
 const SETTINGS_KEY = 'stock_portfolio_settings';
 
 // --- Initialization ---
-// --- Initialization ---
 document.addEventListener('DOMContentLoaded', async () => {
     loadData();
     renderUI();
@@ -56,27 +55,31 @@ function getMarketStatus() {
 
     // 土日
     if (day === 0 || day === 6) {
-        return { isOpen: false, status: 'weekend', label: '休場（週末）', color: 'var(--text-muted)', icon: '📅' };
+        return { isOpen: false, status: 'weekend', label: 'Closed (Weekend)', color: 'var(--text-muted)' };
     }
 
     // 前場（9:00-11:30）
     if (time >= 9 * 60 && time < 11 * 60 + 30) {
-        return { isOpen: true, status: 'morning', label: '取引中（前場）', color: 'var(--success)', icon: '📈' };
+        return { isOpen: true, status: 'morning', label: 'Morning Session', color: 'var(--success)' };
     }
     // 昼休み（11:30-12:30）
     if (time >= 11 * 60 + 30 && time < 12 * 60 + 30) {
-        return { isOpen: false, status: 'lunch', label: '昼休み（前場終値）', color: 'var(--warning)', icon: '🍱' };
+        return { isOpen: false, status: 'lunch', label: 'Lunch Break', color: 'var(--warning)' };
     }
-    // 後場（12:30-15:00）
-    if (time >= 12 * 60 + 30 && time < 15 * 60) {
-        return { isOpen: true, status: 'afternoon', label: '取引中（後場）', color: 'var(--success)', icon: '📈' };
+    // 後場（12:30-15:25）
+    if (time >= 12 * 60 + 30 && time < 15 * 60 + 25) {
+        return { isOpen: true, status: 'afternoon', label: 'Afternoon Session', color: 'var(--success)' };
     }
-    // 市場終了後
-    if (time >= 15 * 60) {
-        return { isOpen: false, status: 'closed', label: '市場終了', color: 'var(--text-muted)', icon: '🌙' };
+    // クロージング・オークション（15:25-15:30）
+    if (time >= 15 * 60 + 25 && time < 15 * 60 + 30) {
+        return { isOpen: true, status: 'closing', label: 'Closing Auction', color: 'var(--warning)' };
+    }
+    // 市場終了後（15:30以降）
+    if (time >= 15 * 60 + 30) {
+        return { isOpen: false, status: 'closed', label: 'Market Closed', color: 'var(--text-muted)' };
     }
     // 市場開始前
-    return { isOpen: false, status: 'pre_market', label: '市場開始前', color: 'var(--text-muted)', icon: '🌅' };
+    return { isOpen: false, status: 'pre_market', label: 'Pre-Market', color: 'var(--text-muted)' };
 }
 
 function getDataFreshness(updateTime) {
@@ -133,19 +136,21 @@ function updateHeaderWithMarketStatus() {
 
     let labelText = status.label;
 
-    // 市場が開いている場合、最終更新からの経過時間を表示
-    if (status.isOpen && lastFetchSuccessTime) {
-        const diffMs = Date.now() - lastFetchSuccessTime;
-        const diffMins = Math.floor(diffMs / 60000);
-        labelText += ` (${diffMins}分前)`;
-    }
-    // 昼休み以外で閉まっている場合のみ (最終値) を付加
-    else if (!status.isOpen && status.status !== 'lunch') {
-        labelText += ' (最終値)';
-    }
-
     badge.innerHTML = `<span>${labelText}</span>`;
     document.body.appendChild(badge);
+}
+
+// 未取得時は見やすく `-- (--%)` を返すユーティリティ
+function formatDayChangeDisplay(change, changePercent) {
+    // 空・未取得表現を標準化
+    if (!change || !changePercent) return '-- (--%)';
+
+    // スクレイピングの既定値 '0' / '0%' が残っている場合は未取得とみなす
+    if ((change === '0' || change === '0.00') && (changePercent === '0%' || changePercent === '0.00%')) {
+        return '-- (--%)';
+    }
+
+    return `${change} (${changePercent})`;
 }
 
 function showLoadingState() {
@@ -313,7 +318,6 @@ function calculateMetrics(stock) {
 }
 
 // --- UI Rendering ---
-// --- UI Rendering ---
 function renderUI() {
     const tableBody = document.getElementById('portfolio-body');
     if (!tableBody) return;
@@ -366,8 +370,18 @@ function renderUI() {
         const plClass = metrics.profitLoss >= 0 ? 'value-positive' : 'value-negative';
         const plSign = metrics.profitLoss >= 0 ? '+' : '';
 
-        // データ鮮度 (バッジ表示は廃止、ヘッダーに統合)
+        // データ鮮度
         const freshness = getDataFreshness(stock.time);
+
+        // 表示用時刻の調整（不揃いを解消）
+        const displayTime = stock.time || '--:--';
+        const checkTimeStr = stock.checkTime || '--:--';
+
+        // 日次変化の表示を整形
+        const _changeDisplay = formatDayChangeDisplay(stock.dayChange, stock.dayChangePercent);
+        const _match = _changeDisplay.match(/^(.+?)\s+\((.+)\)$/);
+        const _changeVal = _match ? _match[1] : _changeDisplay;
+        const _changePct = _match ? _match[2] : '';
 
         row.innerHTML = `
             <td>
@@ -380,19 +394,20 @@ function renderUI() {
             <td>${stock.quantity.toLocaleString()}</td>
             <td>${formatCurrency(stock.purchasePrice)}</td>
             <td>
-                <div class="price-current">${formatCurrency(stock.currentPrice)}</div>
-                <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.2rem;">
-                    <div style="font-size: 0.65rem; color: var(--text-muted);">${stock.time || '--:--'}</div>
+                <div class="price-current">${stock.currentPrice ? formatCurrency(stock.currentPrice) : '--'}</div>
+                <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.2rem;">
+                    <div style="font-size: 0.65rem; color: var(--text-muted);">${displayTime}</div>
+                    ${!marketStatus.isOpen ? `<div style="font-size: 0.5rem; color: var(--text-muted); opacity: 0.7; font-family: monospace; background: rgba(0,0,0,0.05); padding: 0 2px; border-radius: 2px;" title="Selector">${stock.selector || 'N/A'}</div>` : ''}
                 </div>
                 ${!marketStatus.isOpen && freshness.ageInHours > 6 ?
                 `<div style="font-size: 0.6rem; color: var(--warning); margin-top: 0.1rem;">⚠️ 前日終値</div>` : ''}
             </td>
             <td>
                 <div class="${(stock.dayChange || '').startsWith('+') ? 'value-positive' : (stock.dayChange || '').startsWith('-') ? 'value-negative' : ''}" style="font-weight: 600;">
-                    ${stock.dayChange || '0'}
+                    ${_changeVal}
                 </div>
                 <div class="${(stock.dayChange || '').startsWith('+') ? 'value-positive' : (stock.dayChange || '').startsWith('-') ? 'value-negative' : ''}" style="font-size: 0.75rem;">
-                    ${stock.dayChangePercent || '0%'}
+                    ${_changePct}
                 </div>
             </td>
             <td>${formatCurrency(metrics.valuation)}</td>
@@ -484,7 +499,14 @@ async function scrapeYahooJapan(code) {
     let scrapeCode = code;
     if (scrapeCode === '^N225') scrapeCode = '998407.O';
     if (scrapeCode.startsWith('USDJPY')) scrapeCode = 'USDJPY=FX';
-    const symbol = /^\d{4}$/.test(scrapeCode) ? `${scrapeCode}.T` : scrapeCode;
+
+    // symbol は URL 用。^DJI のような記号はエンコードが必要
+    const symbol = /^\d{4}$/.test(scrapeCode) ? `${scrapeCode}.T` : (scrapeCode === '^DJI' ? '%5EDJI' : scrapeCode);
+
+    // 各種フラグ
+    const isJP = symbol.endsWith('.T') || /^\d{4}/.test(symbol);
+    const isDJI = code === '^DJI' || symbol === '%5EDJI' || symbol === 'DJI';
+    const isNikkei = code === '^N225' || symbol === '998407.O';
 
     const url = `https://finance.yahoo.co.jp/quote/${symbol}?_ts=${Date.now()}`;
 
@@ -516,8 +538,12 @@ async function scrapeYahooJapan(code) {
 
         // 1. 株価 (セレクタの優先順位を調整: リアルタイム優先)
         let price = null;
+        let usedSelector = null;
         const priceSelectors = [
-            '._3rXWJKZ',
+            // Add Japanese Stock specific selector first (e.g., for 4-digit codes ending in .T)
+            '._CommonPriceBoard__price_1g7gt_64 ._StyledNumber__value_1arhg_9', // DJI Price Selector
+            'span.PriceBoard__price__1V0k span.StyledNumber__value__3rXW', // Japanese Stock Price Selector
+            '._3rXWJKZ', // 主要な現在値
             '.StyledPriceText',
             '[data-test-id="price"]',
             'span[class*="Price__value"]',
@@ -529,14 +555,21 @@ async function scrapeYahooJapan(code) {
             '[class*="Price_price"]'
         ];
 
-        // 既存セレクタでの探索
         for (const sel of priceSelectors) {
             const el = doc.querySelector(sel);
             if (el) {
-                const txt = el.textContent.replace(/,/g, '').trim();
-                const match = txt.match(/^[\d.]+$/); // 純粋な数値のみ（前日比などは除外）
+                let rawTxt = el.textContent.trim();
+                // 前日比の記号(＋, －, %)が含まれている場合は、価格ではない可能性が高いのでスキップ
+                if (rawTxt.includes('＋') || rawTxt.includes('－') || rawTxt.includes('%')) continue;
+
+                let txt = rawTxt.replace(/,/g, '');
+                if (txt === '---' || txt === '0') continue;
+
+                // 数値部分だけ取り出す
+                const match = txt.match(/[\d.]+/);
                 if (match) {
                     price = parseFloat(match[0]);
+                    usedSelector = sel;
                     break;
                 }
             }
@@ -546,38 +579,71 @@ async function scrapeYahooJapan(code) {
         if (price === null) {
             console.log(`[SmartSearch] Trying fallback search for ${code}...`);
 
-            // 戦略: 「現在値」や「円」といったキーワードの近くにある数値を探索
-            const keywords = ['現在値', '時価', 'リアルタイム', '円'];
-            const allElements = Array.from(doc.querySelectorAll('span, div, p, dd, strong, b'));
+            // 戦略A: 「前日終値」や「基準値」を優先的に探す（市場開始前対策）
+            const preKeywords = ['前日終値', '基準値', 'Close'];
+            const allElements = Array.from(doc.querySelectorAll('span, div, p, dt, dd, th, td, strong, b'));
 
-            // キーワードを含む要素を探す
-            const keywordEls = allElements.filter(el =>
-                keywords.some(k => el.textContent.includes(k)) && el.textContent.length < 20
-            );
+            for (const kw of preKeywords) {
+                // キーワードのテキストノードを直接含んでいるか、または直下の子要素にあるか
+                const kwEl = allElements.find(el => {
+                    const t = el.textContent.trim();
+                    return t === kw || (t.includes(kw) && t.length < 15);
+                });
 
-            for (const keyEl of keywordEls) {
-                // その要素の親、兄弟、子要素から「数値のみ」のテキストを持つ要素を探す
-                // 親の兄弟（隣の列など）も探す
-                const context = keyEl.parentElement?.parentElement || keyEl.parentElement;
-                if (!context) continue;
+                if (kwEl) {
+                    // 親、または親の親、または自分自身から数値を探す
+                    const searchRoots = [kwEl, kwEl.parentElement, kwEl.parentElement?.parentElement];
+                    for (const root of searchRoots) {
+                        if (!root) continue;
 
-                const candidates = Array.from(context.querySelectorAll('*'))
-                    .filter(el => {
-                        const txt = el.textContent.trim().replace(/,/g, '');
-                        // 数字のみ、かつ空でない、かつ長すぎない(桁数制限)
-                        return /^[\d.]+$/.test(txt) && txt.length > 0 && txt.length < 10;
-                    });
+                        // textContent 内の数値も正規表現で直接探す (タグに分かれていても連結される)
+                        // カンマを除去してからマッチング
+                        const text = root.textContent.replace(/,/g, '');
+                        const matches = text.match(/[\d.]+/g);
+                        if (matches) {
+                            for (const m of matches) {
+                                const val = parseFloat(m);
+                                if (!isNaN(val) && val > 0 && val < 500000) { // 株価として現実的な範囲
+                                    price = val;
+                                    break;
+                                }
+                            }
+                        }
+                        if (price !== null) {
+                            console.log(`[SmartSearch] Found price via pre-keyword "${kw}": ${price}`);
+                            usedSelector = `Smart:${kw}`;
+                            break;
+                        }
+                    }
+                }
+                if (price !== null) break;
+            }
 
-                // 数値候補が見つかったら、それを採用（最初に見つかったものを優先）
-                if (candidates.length > 0) {
-                    // 数値が大きい順（フォントサイズではなく値として）... は危険（出来高などを拾うかも）
-                    // DOMの出現順で、キーワードに近いものを採用したい。
-                    // candidates[0] は context 内で最初に見つかったもの。
-                    const val = parseFloat(candidates[0].textContent.replace(/,/g, ''));
-                    if (!isNaN(val) && val > 0) {
-                        price = val;
-                        console.log(`[SmartSearch] Found price via keyword "${keyEl.textContent}": ${price}`);
-                        break;
+            if (price === null) {
+                // 戦略B: 「現在値」や「円」といったキーワードの近くにある数値を探索
+                const keywords = ['現在値', '時価', 'リアルタイム', '円'];
+                // キーワードを含む要素を探す
+                const keywordEls = allElements.filter(el =>
+                    keywords.some(k => el.textContent.includes(k)) && el.textContent.length < 20
+                );
+
+                for (const keyEl of keywordEls) {
+                    const context = keyEl.parentElement?.parentElement || keyEl.parentElement;
+                    if (!context) continue;
+
+                    const candidates = Array.from(context.querySelectorAll('*'))
+                        .filter(el => {
+                            const txt = el.textContent.trim().replace(/,/g, '');
+                            return /^-?[\d.]+$/.test(txt) && txt.length > 0 && txt.length < 15;
+                        });
+
+                    if (candidates.length > 0) {
+                        const val = parseFloat(candidates[0].textContent.replace(/,/g, ''));
+                        if (!isNaN(val) && val > 0) {
+                            price = val;
+                            console.log(`[SmartSearch] Found price via keyword "${keyEl.textContent}": ${price}`);
+                            break;
+                        }
                     }
                 }
             }
@@ -596,65 +662,178 @@ async function scrapeYahooJapan(code) {
             }
         }
 
-        // 2. 前日比 (金額と率) - "+1500" バグ回避版
+        // 2. 前日比 (金額と率)
         let dayChange = '0';
         let dayChangePercent = '0%';
 
-        // 前日比候補を探す
-        const candidates = Array.from(doc.querySelectorAll('._3S6pP, ._399tF, span, div'))
-            .filter(el => {
-                const t = el.textContent.trim();
-                // 15:00 のような時刻形式を排除（コロンが含まれ、％が含まれないものはスキップ）
-                if (t.includes(':') && !t.includes('%')) return false;
-                // ＋ か － か % を含み、かつ短すぎず長すぎないものを候補とする
-                return (t.includes('＋') || t.includes('－') || t.includes('%')) && t.length < 40 && !el.classList.contains('_3P_pZ');
-            });
-
-        let changeText = '';
-        if (candidates.length > 0) {
-            // 最も前日比らしい（%と符号の両方を含む）ものを優先
-            const best = candidates.find(el => (el.textContent.includes('＋') || el.textContent.includes('－')) && el.textContent.includes('%')) || candidates[0];
-            changeText = best.textContent;
+        // DJI専用の当日変化率取得ロジック
+        if (isDJI) {
+            const djiDayChangeEl = doc.querySelector('._PriceChangeLabel__primary_hse06_56 ._StyledNumber__value_1arhg_9');
+            if (djiDayChangeEl) {
+                dayChange = djiDayChangeEl.textContent.trim().replace(/,/g, '');
+                if (!dayChange.startsWith('+') && !dayChange.startsWith('-') && dayChange !== '0') {
+                    dayChange = '+' + dayChange;
+                }
+            }
+            const djiDayChangePercentEl = doc.querySelector('._PriceChangeLabel__secondary_hse06_62 ._StyledNumber__value_1arhg_9');
+            if (djiDayChangePercentEl) {
+                dayChangePercent = djiDayChangePercentEl.textContent.trim().replace(/,/g, '') + '%';
+                if (!dayChangePercent.startsWith('+') && !dayChangePercent.startsWith('-') && dayChangePercent !== '0%') {
+                    dayChangePercent = '+' + dayChangePercent;
+                }
+            }
         }
 
-        if (changeText) {
-            const clean = changeText.replace(/－/g, '-').replace(/＋/g, '+').replace(/,/g, '');
-            // 符号(+ or -)の直後に数値が来るパターンを抽出
-            const matches = clean.match(/[+-][\d.]+/g);
-            if (matches && matches.length >= 1) {
-                dayChange = matches[0];
-                if (matches.length >= 2) {
-                    dayChangePercent = matches[1] + '%';
-                } else {
-                    const pMatch = clean.match(/[\d.]+(?=%)/);
-                    if (pMatch) dayChangePercent = (dayChange.startsWith('-') ? '-' : '+') + pMatch[0] + '%';
+        // 日経平均 (998407.O) 専用の当日変化率取得ロジック
+        if (isNikkei && dayChange === '0' && dayChangePercent === '0%') {
+            // 日経平均のセレクタ（通常の日本株と共通）
+            const nikkeiDayChangeEl = doc.querySelector('span.PriceChangeLabel__primary__Y_ut span.StyledNumber__value__3rXW');
+            if (nikkeiDayChangeEl) {
+                dayChange = nikkeiDayChangeEl.textContent.trim().replace(/,/g, '');
+                if (!dayChange.startsWith('+') && !dayChange.startsWith('-') && dayChange !== '0') {
+                    dayChange = '+' + dayChange;
+                }
+            }
+            const nikkeiDayChangePercentEl = doc.querySelector('span.PriceChangeLabel__secondary__3BXI span.StyledNumber__value__3rXW');
+            if (nikkeiDayChangePercentEl) {
+                dayChangePercent = nikkeiDayChangePercentEl.textContent.trim().replace(/,/g, '') + '%';
+                if (!dayChangePercent.startsWith('+') && !dayChangePercent.startsWith('-') && dayChangePercent !== '0%') {
+                    dayChangePercent = '+' + dayChangePercent;
+                }
+            }
+        }
+
+        // 日本株 (4桁コード) 専用の当日変化率取得ロジック
+        if (isJP && symbol.endsWith('.T') && dayChange === '0' && dayChangePercent === '0%') {
+            const jpDayChangeEl = doc.querySelector('span.PriceChangeLabel__primary__Y_ut span.StyledNumber__value__3rXW');
+            if (jpDayChangeEl) {
+                dayChange = jpDayChangeEl.textContent.trim().replace(/,/g, '');
+                if (!dayChange.startsWith('+') && !dayChange.startsWith('-') && dayChange !== '0') {
+                    dayChange = '+' + dayChange;
+                }
+            }
+            const jpDayChangePercentEl = doc.querySelector('span.PriceChangeLabel__secondary__3BXI span.StyledNumber__value__3rXW');
+            if (jpDayChangePercentEl) {
+                dayChangePercent = jpDayChangePercentEl.textContent.trim().replace(/,/g, '') + '%';
+                if (!dayChangePercent.startsWith('+') && !dayChangePercent.startsWith('-') && dayChangePercent !== '0%') {
+                    dayChangePercent = '+' + dayChangePercent;
+                }
+            }
+        }
+
+        // DJI専用のロジックで値が取得できなかった場合のみ、汎用ロジックを試す
+        if (dayChange === '0' && dayChangePercent === '0%') { // <--- New condition
+            // 戦略A: 専用クラスからの抽出（個別に取得できる場合）
+            const amtEl = doc.querySelector('._3S6pP');
+            const pctEl = doc.querySelector('._399tF');
+
+            if (amtEl) {
+                dayChange = amtEl.textContent.trim().replace(/＋/g, '+').replace(/－/g, '-').replace(/,/g, '');
+                // 数値のみで符号がない場合は + を補完（UIの色付け用）
+                if (dayChange !== '0' && dayChange !== '0.00' && !dayChange.startsWith('+') && !dayChange.startsWith('-')) {
+                    dayChange = '+' + dayChange;
+                }
+            }
+
+            if (pctEl) {
+                dayChangePercent = pctEl.textContent.trim().replace(/＋/g, '+').replace(/－/g, '-').replace(/[()%]/g, '') + '%';
+                if (dayChangePercent !== '0%' && dayChangePercent !== '0.00%' && !dayChangePercent.startsWith('+') && !dayChangePercent.startsWith('-')) {
+                    dayChangePercent = '+' + dayChangePercent;
+                }
+            }
+            // 戦略B: まとまった文字列（"前日比 +10 (+0.5%)" など）からのフォールバック抽出
+            if (dayChange === '0' || dayChangePercent === '0%') {
+                const candidates = Array.from(doc.querySelectorAll('span, div, td'))
+                    .filter(el => {
+                        const t = el.textContent.trim();
+                        if (t.includes(':')) return false;
+                        return (t.includes('＋') || t.includes('－') || t.includes('%')) && t.length < 40 && !el.classList.contains('_3P_pZ');
+                    });
+
+                if (candidates.length > 0) {
+                    const best = candidates.find(el => (el.textContent.includes('＋') || el.textContent.includes('－')) && el.textContent.includes('%')) || candidates[0];
+                    const clean = best.textContent.replace(/－/g, '-').replace(/＋/g, '+').replace(/,/g, '');
+                    const matches = clean.match(/[+-]?[\d.]+/g);
+                    if (matches && matches.length >= 1) {
+                        dayChange = dayChange === '0' ? matches[0] : dayChange;
+                        if (!dayChange.startsWith('+') && !dayChange.startsWith('-') && dayChange !== '0') dayChange = '+' + dayChange;
+
+                        if (matches.length >= 2) {
+                            // dayChangePercent の符号を dayChange に合わせる（一貫性を保つ）
+                            let percentValue = matches[1];
+                            if (dayChange.startsWith('-')) {
+                                dayChangePercent = '-' + percentValue.replace(/^-/, '') + '%';
+                            } else {
+                                dayChangePercent = '+' + percentValue.replace(/^[+-]/, '') + '%';
+                            }
+                        } else if (dayChangePercent === '0%') {
+                            const pMatch = clean.match(/[\d.]+(?=%)/);
+                            if (pMatch) {
+                                let percentValue = pMatch[0];
+                                if (dayChange.startsWith('-')) {
+                                    dayChangePercent = '-' + percentValue + '%';
+                                } else {
+                                    dayChangePercent = '+' + percentValue + '%';
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
 
         // 3. 市場更新時刻 (より詳細な探索)
         let updateTime = '--:--';
+        const marketStatus = getMarketStatus();
 
-        // 優先順位 1: 特定のクラス名（Yahooの仕様変更に対応）
-        // ._18i9z は時刻、._2_o8X は日付
-        const timeSelectors = [
-            'time',
-            '._18i9z',
-            '[data-field="regularMarketTime"]',
-            'span[class*="Price_time"]',
-            'span[class*="Price_date"]',
-            'span[class*="StyledPriceTime"]'
-        ];
-
-        for (const sel of timeSelectors) {
-            const el = doc.querySelector(sel);
-            if (el) {
-                // 時刻(15:00) or 日付時刻(02/12 15:00) or 漢数字を含む形式(15時30分)を抽出
-                const match = el.textContent.match(/(\d{1,2}\/\d{1,2}\s+)?\d{1,2}:\d{2}|(\d{1,2}時\d{1,2}分)|--:--/);
-                if (match) {
-                    updateTime = match[0].replace('時', ':').replace('分', '');
-                    break;
+        // 市場開始前の日本株は無条件で "--:--" とする
+        if (isJP && marketStatus.status === 'pre_market') {
+            updateTime = '--:--';
+        } else {
+            // DJI専用の時刻取得ロジック
+            if (isDJI) {
+                const djiTimeEl = doc.querySelector('._CommonPriceBoard__times_1g7gt_55 time');
+                if (djiTimeEl) {
+                    const tMatch = djiTimeEl.textContent.trim().match(/\d{1,2}:\d{2}/);
+                    if (tMatch) {
+                        updateTime = tMatch[0];
+                    }
                 }
+            }
+
+            // Fallback to generic time selectors if DJI specific logic didn't find anything
+            if (updateTime === '--:--') {
+                const timeSelectors = [
+                    'span[class*="Price_time"]',
+                    '._18i9z',
+                    'time',
+                    '[data-field="regularMarketTime"]'
+                ];
+
+                let foundTime = null;
+                // ページ全体から "--:--" を優先的に探す
+                if (doc.body.textContent.includes('--:--')) {
+                    foundTime = '--:--';
+                }
+
+                if (!foundTime) {
+                    for (const sel of timeSelectors) {
+                        const el = doc.querySelector(sel);
+                        if (el) {
+                            const txt = el.textContent.trim();
+                            if (txt.includes('--:--')) {
+                                foundTime = '--:--';
+                                break;
+                            }
+                            const tMatch = txt.match(/\d{1,2}:\d{2}/);
+                            if (tMatch) {
+                                foundTime = tMatch[0];
+                                break;
+                            }
+                        }
+                    }
+                }
+                updateTime = foundTime || '--:--';
             }
         }
 
@@ -731,10 +910,11 @@ async function scrapeYahooJapan(code) {
                 price: price || 0,
                 name: name || code,
                 time: updateTime,
+                selector: usedSelector, // セレクタ情報の追加
                 checkTime: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }),
                 dayChange: dayChange,
                 dayChangePercent: dayChangePercent,
-                keywords: keywords.slice(0, 5) // 最大5つ
+                keywords: keywords.slice(0, 5)
             };
         }
     } catch (e) { console.error('Scraping error', e); }
@@ -784,6 +964,8 @@ async function refreshAllPrices() {
     refreshBtn.disabled = true;
     refreshIcon.style.animation = 'spin 1.5s linear infinite';
 
+    const fetchTime = new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+
     try {
         await Promise.all(holdings.map(async (stock) => {
             const result = await fetchIndividualPrice(stock.code);
@@ -791,9 +973,10 @@ async function refreshAllPrices() {
                 stock.currentPrice = result.price;
                 stock.dayChange = result.dayChange;
                 stock.dayChangePercent = result.dayChangePercent;
-                stock.checkTime = result.checkTime;
+                stock.checkTime = fetchTime; // すべての行に共通のフェッチ開始時刻をセット
                 stock.time = result.time;
                 stock.keywords = result.keywords;
+                stock.selector = result.selector;
             }
         }));
         await refreshMarketIndices(); // 日経平均と為替も更新
@@ -818,7 +1001,7 @@ async function refreshMarketIndices() {
         const changeEl = document.getElementById('nikkei-change');
         if (priceEl && changeEl) {
             priceEl.textContent = `¥${nikkeiResult.price.toLocaleString()}`;
-            changeEl.textContent = `${nikkeiResult.dayChange} (${nikkeiResult.dayChangePercent})`;
+            changeEl.textContent = `前日比：${formatDayChangeDisplay(nikkeiResult.dayChange, nikkeiResult.dayChangePercent)}`;
             changeEl.className = 'index-change ' + ((nikkeiResult.dayChange || '').startsWith('+') ? 'value-positive' : (nikkeiResult.dayChange || '').startsWith('-') ? 'value-negative' : '');
         }
     }
@@ -830,7 +1013,7 @@ async function refreshMarketIndices() {
         const changeEl = document.getElementById('usdjpy-change');
         if (priceEl && changeEl) {
             priceEl.textContent = usdjpyResult.price.toFixed(2);
-            changeEl.textContent = `${usdjpyResult.dayChange} (${usdjpyResult.dayChangePercent})`;
+            changeEl.textContent = formatDayChangeDisplay(usdjpyResult.dayChange, usdjpyResult.dayChangePercent);
             changeEl.className = 'index-change ' + ((usdjpyResult.dayChange || '').startsWith('+') ? 'value-positive' : (usdjpyResult.dayChange || '').startsWith('-') ? 'value-negative' : '');
         }
     }
