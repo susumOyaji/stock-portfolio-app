@@ -18,32 +18,69 @@
     <div class="container">
         <header>
             <div class="header-main">
-                <div class="header-info">
+                <div class="header-info" style="flex: 1;">
                     <h1>Stock Portfolio Manager(Scraping JSON-LD/Meta Tags)</h1>
-                </div>
-                <div class="header-actions"
-                    style="display: flex; flex-direction: column; align-items: flex-end; gap: 0.4rem;">
-                    <div style="display: flex; align-items: center; gap: 0.5rem;">
-                        <select id="update-interval"
-                            style="background: var(--glass); border: 1px solid var(--border); color: var(--text-muted); padding: 0.2rem 0.5rem; border-radius: 0.5rem; font-size: 0.7rem; cursor: pointer; outline: none;">
-                            <option value="0">更新オフ</option>
-                            <option value="1">1分</option>
-                            <option value="2" selected>2分</option>
-                            <option value="5">5分</option>
-                            <option value="10">10分</option>
-                        </select>
-                        <button id="refresh-all-btn" class="btn-icon btn-edit" title="情報を一括更新">
-                            <svg id="refresh-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18"
-                                viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-                                stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M21 2v6h-6"></path>
-                                <path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path>
-                                <path d="M3 22v-6h6"></path>
-                                <path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path>
-                            </svg>
-                        </button>
+                    <!-- Featured Stocks Section -->
+                    <div class="featured-section"
+                        style="margin-top: 1.5rem; display: flex; align-items: stretch; gap: 1rem;">
+                        <div id="featured-stocks-list" class="featured-grid" style="flex: 1;">
+                            <!-- NY Dow -->
+                            <div class="featured-card" id="featured-dji">
+                                <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                                    <div class="featured-label" id="dji-label">NYダウ</div>
+                                    <button class="btn-featured-edit" onclick="editFeaturedStock('dji')">✏️</button>
+                                </div>
+                                <div id="dji-price" class="featured-price">$--,---.--</div>
+                                <div id="dji-change" class="featured-change">-- (--%)</div>
+                            </div>
+                            <!-- Nasdaq -->
+                            <div class="featured-card" id="featured-nasdaq">
+                                <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                                    <div class="featured-label" id="nasdaq-label">Nasdaq</div>
+                                    <button class="btn-featured-edit" onclick="editFeaturedStock('nasdaq')">✏️</button>
+                                </div>
+                                <div id="nasdaq-price" class="featured-price">--,---.--</div>
+                                <div id="nasdaq-change" class="featured-change">-- (--%)</div>
+                            </div>
+                            <!-- S&P 500 -->
+                            <div class="featured-card" id="featured-sp500">
+                                <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                                    <div class="featured-label" id="sp500-label">S&P 500</div>
+                                    <button class="btn-featured-edit" onclick="editFeaturedStock('sp500')">✏️</button>
+                                </div>
+                                <div id="sp500-price" class="featured-price">-,---.--</div>
+                                <div id="sp500-change" class="featured-change">-- (--%)</div>
+                            </div>
+                        </div>
+
+                        <!-- Header Actions (Integrated) -->
+                        <div class="header-actions"
+                            style="display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 0.5rem; padding: 0.5rem; background: var(--glass); border: 1px solid var(--border); border-radius: 1rem; min-width: 120px;">
+                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                <select id="update-interval"
+                                    style="background: transparent; border: 1px solid var(--border); color: var(--text-muted); padding: 0.2rem 0.3rem; border-radius: 0.4rem; font-size: 0.65rem; cursor: pointer; outline: none;">
+                                    <option value="0">オフ</option>
+                                    <option value="1">1分</option>
+                                    <option value="2" selected>2分</option>
+                                    <option value="5">5分</option>
+                                </select>
+                                <button id="refresh-all-btn" class="btn-icon btn-edit"
+                                    style="width: 32px; height: 32px;" title="情報を一括更新">
+                                    <svg id="refresh-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16"
+                                        viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                                        stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M21 2v6h-6"></path>
+                                        <path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path>
+                                        <path d="M3 22v-6h6"></path>
+                                        <path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path>
+                                    </svg>
+                                </button>
+                            </div>
+                            <p id="last-updated"
+                                style="font-size: 0.6rem; color: var(--text-muted); margin: 0; white-space: nowrap;">
+                                最終更新: --:--:--</p>
+                        </div>
                     </div>
-                    <p id="last-updated" style="font-size: 0.65rem; color: var(--text-muted);">最終更新: --:--:--</p>
                 </div>
             </div>
         </header>

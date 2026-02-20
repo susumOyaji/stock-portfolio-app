@@ -116,6 +116,69 @@ h1 {
     }
 }
 
+/* Featured Bar Styles */
+.featured-section {
+    margin-bottom: 0;
+}
+
+.featured-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.75rem;
+}
+
+.featured-card {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border);
+    border-radius: 1rem;
+    padding: 1rem;
+    transition: all 0.3s ease;
+}
+
+.featured-card:hover {
+    background: rgba(255, 255, 255, 0.06);
+    transform: translateY(-2px);
+    border-color: var(--primary);
+}
+
+.featured-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-bottom: 0.25rem;
+}
+
+.featured-price {
+    font-size: 1.15rem;
+    font-weight: 700;
+}
+
+.featured-change {
+    font-size: 0.8rem;
+    margin-top: 0.2rem;
+    font-weight: 600;
+}
+
+.btn-featured-edit {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    background: transparent;
+    border: 1px solid var(--primary);
+    color: var(--primary);
+    font-size: 0.7rem;
+    cursor: pointer;
+    border-radius: 0.4rem;
+    transition: all 0.2s;
+}
+
+.btn-featured-edit:hover {
+    background: var(--primary);
+    color: white;
+    transform: translateY(-1px);
+}
+
 .card {
     background: var(--card-bg);
     backdrop-filter: blur(12px);

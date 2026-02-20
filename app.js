@@ -8,10 +8,54 @@ let lastFetchResult = null;
 let autoUpdateTimer = null;
 const STORAGE_KEY = 'stock_portfolio_data';
 const SETTINGS_KEY = 'stock_portfolio_settings';
+const FEATURED_KEY = 'stock_portfolio_featured';
+
+// デフォルトの注目銘柄設定
+const DEFAULT_FEATURED = {
+    dji: { code: '^DJI', label: 'NYダウ' },
+    nasdaq: { code: '^IXIC', label: 'Nasdaq' },
+    sp500: { code: '^GSPC', label: 'S&P 500' }
+};
+
+let featuredStocks = { ...DEFAULT_FEATURED };
+
+// --- Utilities (正規化・解析の共通処理) ---
+function normalizeNumberStr(val) {
+    if (val === null || val === undefined) return '';
+    return String(val)
+        .replace(/[＋+]/g, '+')
+        .replace(/[－‐−-]/g, '-')
+        .replace(/,/g, '')
+        .replace(/%/g, '')
+        .trim();
+}
+
+function parsePercent(val) {
+    if (val === null || val === undefined || val === '') return -Infinity;
+    if (typeof val === 'number') return val;
+    const s = normalizeNumberStr(val);
+    const n = parseFloat(s);
+    return isNaN(n) ? -Infinity : n;
+}
+
+function getSignClass(val) {
+    const s = normalizeNumberStr(val);
+    if (s.startsWith('+')) return 'value-positive';
+    if (s.startsWith('-')) return 'value-negative';
+    return '';
+}
+
+function normalizeDayChangeValue(val) {
+    const s = normalizeNumberStr(val);
+    if (!s) return 0;
+    const n = parseFloat(s);
+    return isNaN(n) ? 0 : n;
+}
 
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', async () => {
     loadData();
+    loadFeaturedData();
     renderUI();
     setupEventListeners();
 
@@ -254,6 +298,14 @@ function loadData() {
 }
 function saveData() { localStorage.setItem(STORAGE_KEY, JSON.stringify(holdings)); }
 
+function loadFeaturedData() {
+    const saved = localStorage.getItem(FEATURED_KEY);
+    if (saved) {
+        try { featuredStocks = JSON.parse(saved); } catch (e) { featuredStocks = { ...DEFAULT_FEATURED }; }
+    }
+}
+function saveFeaturedData() { localStorage.setItem(FEATURED_KEY, JSON.stringify(featuredStocks)); }
+
 // 自動更新タイマーの管理
 // 市場が開いているか定期的にチェックし、開いていればデータ更新を行う
 let lastUpdateTime = 0;
@@ -333,28 +385,8 @@ function renderUI() {
 
     // 前日比（％）で降順にソートして表示
     const sortedHoldings = [...holdings].sort((a, b) => {
-        const parsePercent = (val) => {
-            if (val === null || val === undefined || val === '') return -Infinity;
-            // すでに数値の場合
-            if (typeof val === 'number') return val;
-
-            // 文字列の場合のクリーニング
-            const strVal = String(val);
-            // 符号、カンマ、%を除去して数値化
-            const cleanStr = strVal
-                .replace(/[＋+]/g, '')      // プラス符号を除去
-                .replace(/[－-]/g, '-')     // マイナス記号を半角ハイフンに統一
-                .replace(/,/g, '')          // カンマを除去
-                .replace(/%/g, '')          // パーセントを除去
-                .trim();
-
-            const num = parseFloat(cleanStr);
-            return isNaN(num) ? -Infinity : num;
-        };
-
         const percentA = parsePercent(a.dayChangePercent);
         const percentB = parsePercent(b.dayChangePercent);
-
         return percentB - percentA;
     });
 
@@ -403,10 +435,10 @@ function renderUI() {
                 `<div style="font-size: 0.6rem; color: var(--warning); margin-top: 0.1rem;">⚠️ 前日終値</div>` : ''}
             </td>
             <td>
-                <div class="${(stock.dayChange || '').startsWith('+') ? 'value-positive' : (stock.dayChange || '').startsWith('-') ? 'value-negative' : ''}" style="font-weight: 600;">
+                <div class="${getSignClass(stock.dayChange)}" style="font-weight: 600;">
                     ${_changeVal}
                 </div>
-                <div class="${(stock.dayChange || '').startsWith('+') ? 'value-positive' : (stock.dayChange || '').startsWith('-') ? 'value-negative' : ''}" style="font-size: 0.75rem;">
+                <div class="${getSignClass(stock.dayChange)}" style="font-size: 0.75rem;">
                     ${_changePct}
                 </div>
             </td>
@@ -431,8 +463,7 @@ function renderUI() {
     // 総評価額の前日比を合計
     let totalDayChange = 0;
     holdings.forEach(stock => {
-        const changeStr = (stock.dayChange || '0').replace(/[＋+]/g, '').replace(/[－-]/g, '-').replace(/,/g, '');
-        const changeVal = parseFloat(changeStr) || 0;
+        const changeVal = normalizeDayChangeValue(stock.dayChange);
         totalDayChange += changeVal * (stock.quantity || 0);
     });
 
@@ -501,11 +532,17 @@ async function scrapeYahooJapan(code) {
     if (scrapeCode.startsWith('USDJPY')) scrapeCode = 'USDJPY=FX';
 
     // symbol は URL 用。^DJI のような記号はエンコードが必要
-    const symbol = /^\d{4}$/.test(scrapeCode) ? `${scrapeCode}.T` : (scrapeCode === '^DJI' ? '%5EDJI' : scrapeCode);
+    const symbol = /^\d{4}$/.test(scrapeCode) ? `${scrapeCode}.T` :
+        (scrapeCode === '^DJI' ? '%5EDJI' :
+            (scrapeCode === '^IXIC' ? '%5EIXIC' :
+                (scrapeCode === '^GSPC' ? '%5EGSPC' : scrapeCode)));
 
     // 各種フラグ
     const isJP = symbol.endsWith('.T') || /^\d{4}/.test(symbol);
     const isDJI = code === '^DJI' || symbol === '%5EDJI' || symbol === 'DJI';
+    const isNasdaq = code === '^IXIC' || symbol === '%5EIXIC' || symbol === 'IXIC';
+    const isSP500 = code === '^GSPC' || symbol === '%5EGSPC' || symbol === 'GSPC';
+    const isUSIndex = isDJI || isNasdaq || isSP500;
     const isNikkei = code === '^N225' || symbol === '998407.O';
 
     const url = `https://finance.yahoo.co.jp/quote/${symbol}?_ts=${Date.now()}`;
@@ -666,18 +703,18 @@ async function scrapeYahooJapan(code) {
         let dayChange = '0';
         let dayChangePercent = '0%';
 
-        // DJI専用の当日変化率取得ロジック
-        if (isDJI) {
-            const djiDayChangeEl = doc.querySelector('._PriceChangeLabel__primary_hse06_56 ._StyledNumber__value_1arhg_9');
-            if (djiDayChangeEl) {
-                dayChange = djiDayChangeEl.textContent.trim().replace(/,/g, '');
+        // DJI/Nasdaq/S&P500 等の米国指数専用の当日変化率取得ロジック
+        if (isUSIndex) {
+            const indexChangeEl = doc.querySelector('._PriceChangeLabel__primary_hse06_56 ._StyledNumber__value_1arhg_9');
+            if (indexChangeEl) {
+                dayChange = indexChangeEl.textContent.trim().replace(/,/g, '');
                 if (!dayChange.startsWith('+') && !dayChange.startsWith('-') && dayChange !== '0') {
                     dayChange = '+' + dayChange;
                 }
             }
-            const djiDayChangePercentEl = doc.querySelector('._PriceChangeLabel__secondary_hse06_62 ._StyledNumber__value_1arhg_9');
-            if (djiDayChangePercentEl) {
-                dayChangePercent = djiDayChangePercentEl.textContent.trim().replace(/,/g, '') + '%';
+            const indexChangePercentEl = doc.querySelector('._PriceChangeLabel__secondary_hse06_62 ._StyledNumber__value_1arhg_9');
+            if (indexChangePercentEl) {
+                dayChangePercent = indexChangePercentEl.textContent.trim().replace(/,/g, '') + '%';
                 if (!dayChangePercent.startsWith('+') && !dayChangePercent.startsWith('-') && dayChangePercent !== '0%') {
                     dayChangePercent = '+' + dayChangePercent;
                 }
@@ -790,11 +827,11 @@ async function scrapeYahooJapan(code) {
         if (isJP && marketStatus.status === 'pre_market') {
             updateTime = '--:--';
         } else {
-            // DJI専用の時刻取得ロジック
-            if (isDJI) {
-                const djiTimeEl = doc.querySelector('._CommonPriceBoard__times_1g7gt_55 time');
-                if (djiTimeEl) {
-                    const tMatch = djiTimeEl.textContent.trim().match(/\d{1,2}:\d{2}/);
+            // 米国指数専用の時刻取得ロジック
+            if (isUSIndex) {
+                const indexTimeEl = doc.querySelector('._CommonPriceBoard__times_1g7gt_55 time');
+                if (indexTimeEl) {
+                    const tMatch = indexTimeEl.textContent.trim().match(/\d{1,2}:\d{2}/);
                     if (tMatch) {
                         updateTime = tMatch[0];
                     }
@@ -1002,7 +1039,7 @@ async function refreshMarketIndices() {
         if (priceEl && changeEl) {
             priceEl.textContent = `¥${nikkeiResult.price.toLocaleString()}`;
             changeEl.textContent = `前日比：${formatDayChangeDisplay(nikkeiResult.dayChange, nikkeiResult.dayChangePercent)}`;
-            changeEl.className = 'index-change ' + ((nikkeiResult.dayChange || '').startsWith('+') ? 'value-positive' : (nikkeiResult.dayChange || '').startsWith('-') ? 'value-negative' : '');
+            changeEl.className = 'index-change ' + getSignClass(nikkeiResult.dayChange);
         }
     }
 
@@ -1014,7 +1051,64 @@ async function refreshMarketIndices() {
         if (priceEl && changeEl) {
             priceEl.textContent = usdjpyResult.price.toFixed(2);
             changeEl.textContent = formatDayChangeDisplay(usdjpyResult.dayChange, usdjpyResult.dayChangePercent);
-            changeEl.className = 'index-change ' + ((usdjpyResult.dayChange || '').startsWith('+') ? 'value-positive' : (usdjpyResult.dayChange || '').startsWith('-') ? 'value-negative' : '');
+            changeEl.className = 'index-change ' + getSignClass(usdjpyResult.dayChange);
+        }
+    }
+
+    // 3. 注目株・市場
+    const featuredItems = [
+        { id: 'dji', code: featuredStocks.dji.code, format: (p) => `$${p.toLocaleString()}` },
+        { id: 'nasdaq', code: featuredStocks.nasdaq.code, format: (p) => p.toLocaleString() },
+        { id: 'sp500', code: featuredStocks.sp500.code, format: (p) => p.toLocaleString() }
+    ];
+
+    await Promise.all(featuredItems.map(async (item) => {
+        const result = await fetchIndividualPrice(item.code);
+        if (result) {
+            const priceEl = document.getElementById(`${item.id}-price`);
+            const changeEl = document.getElementById(`${item.id}-change`);
+            const labelEl = document.getElementById(`${item.id}-label`);
+            if (priceEl && changeEl) {
+                priceEl.textContent = item.format(result.price);
+                changeEl.textContent = formatDayChangeDisplay(result.dayChange, result.dayChangePercent);
+                changeEl.className = 'featured-change ' + getSignClass(result.dayChange);
+                if (labelEl && result.name && result.name !== item.code) {
+                    labelEl.textContent = result.name;
+                    featuredStocks[item.id].label = result.name;
+                }
+            }
+        }
+    }));
+}
+
+async function editFeaturedStock(id) {
+    const current = featuredStocks[id];
+    const newCode = prompt(`${current.label} の新しい企業コードを入力してください:`, current.code);
+
+    if (newCode && newCode !== current.code) {
+        featuredStocks[id].code = newCode.trim();
+        saveFeaturedData();
+
+        // 該当カードを「取得中」表示に
+        const priceEl = document.getElementById(`${id}-price`);
+        if (priceEl) priceEl.textContent = '取得中...';
+
+        // 即座に更新
+        const result = await fetchIndividualPrice(featuredStocks[id].code);
+        if (result) {
+            const changeEl = document.getElementById(`${id}-change`);
+            const labelEl = document.getElementById(`${id}-label`);
+
+            featuredStocks[id].label = result.name || newCode;
+            if (labelEl) labelEl.textContent = featuredStocks[id].label;
+
+            const format = (id === 'dji') ? (p) => `$${p.toLocaleString()}` : (p) => p.toLocaleString();
+            if (priceEl) priceEl.textContent = format(result.price);
+            if (changeEl) {
+                changeEl.textContent = formatDayChangeDisplay(result.dayChange, result.dayChangePercent);
+                changeEl.className = 'featured-change ' + getSignClass(result.dayChange);
+            }
+            saveFeaturedData();
         }
     }
 }
