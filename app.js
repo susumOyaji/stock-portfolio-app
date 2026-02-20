@@ -9,6 +9,7 @@ let autoUpdateTimer = null;
 const STORAGE_KEY = 'stock_portfolio_data';
 const SETTINGS_KEY = 'stock_portfolio_settings';
 const FEATURED_KEY = 'stock_portfolio_featured';
+const FEATURED_SETTINGS_KEY = 'stock_portfolio_featured_settings';
 
 // デフォルトの注目銘柄設定
 const DEFAULT_FEATURED = {
@@ -17,7 +18,16 @@ const DEFAULT_FEATURED = {
     sp500: { code: '^GSPC', label: 'S&P 500' }
 };
 
+const DEFAULT_FEATURED_SETTINGS = {
+    mode: 'manual', // manual, auto_volume, auto_up, auto_tradingValue
+    filter: 'all',  // all, prime, standard, growth
+    industry: 'all', // all, industry code
+    minPrice: '',
+    maxPrice: ''
+};
+
 let featuredStocks = { ...DEFAULT_FEATURED };
+let featuredSettings = { ...DEFAULT_FEATURED_SETTINGS };
 
 // --- Utilities (正規化・解析の共通処理) ---
 function normalizeNumberStr(val) {
@@ -56,6 +66,7 @@ function normalizeDayChangeValue(val) {
 document.addEventListener('DOMContentLoaded', async () => {
     loadData();
     loadFeaturedData();
+    loadFeaturedSettings();
     renderUI();
     setupEventListeners();
 
@@ -259,6 +270,34 @@ function setupEventListeners() {
     addBtn.addEventListener('click', () => openModal());
     closeBtn.addEventListener('click', () => closeModal());
     overlay.addEventListener('click', (e) => { if (e.target === overlay) closeModal(); });
+
+    // 注目株の設定（追加）
+    const featuredSettingsBtn = document.getElementById('featured-settings-btn');
+    if (featuredSettingsBtn) {
+        featuredSettingsBtn.addEventListener('click', openFeaturedSettingsModal);
+    }
+    const featuredModalClose = document.getElementById('featured-modal-close');
+    if (featuredModalClose) {
+        featuredModalClose.addEventListener('click', closeFeaturedSettingsModal);
+    }
+    const saveFeaturedBtn = document.getElementById('save-featured-settings');
+    if (saveFeaturedBtn) {
+        saveFeaturedBtn.addEventListener('click', saveFeaturedSettingsAndUpdate);
+    }
+    const featuredModeSelect = document.getElementById('featured-mode');
+    if (featuredModeSelect) {
+        featuredModeSelect.addEventListener('change', (e) => {
+            const autoOptions = document.getElementById('featured-auto-options');
+            if (autoOptions) autoOptions.style.display = e.target.value === 'manual' ? 'none' : 'block';
+        });
+    }
+    // モーダル外クリックで閉じる
+    const featuredSettingsModal = document.getElementById('featured-settings-modal');
+    if (featuredSettingsModal) {
+        featuredSettingsModal.addEventListener('click', (e) => {
+            if (e.target === featuredSettingsModal) closeFeaturedSettingsModal();
+        });
+    }
 }
 
 function openModal(isEdit = false) {
@@ -305,6 +344,13 @@ function loadFeaturedData() {
     }
 }
 function saveFeaturedData() { localStorage.setItem(FEATURED_KEY, JSON.stringify(featuredStocks)); }
+function loadFeaturedSettings() {
+    const saved = localStorage.getItem(FEATURED_SETTINGS_KEY);
+    if (saved) {
+        try { featuredSettings = JSON.parse(saved); } catch (e) { featuredSettings = { ...DEFAULT_FEATURED_SETTINGS }; }
+    }
+}
+function saveFeaturedSettings() { localStorage.setItem(FEATURED_SETTINGS_KEY, JSON.stringify(featuredSettings)); }
 
 // 自動更新タイマーの管理
 // 市場が開いているか定期的にチェックし、開いていればデータ更新を行う
@@ -1056,29 +1102,226 @@ async function refreshMarketIndices() {
     }
 
     // 3. 注目株・市場
-    const featuredItems = [
-        { id: 'dji', code: featuredStocks.dji.code, format: (p) => `$${p.toLocaleString()}` },
-        { id: 'nasdaq', code: featuredStocks.nasdaq.code, format: (p) => p.toLocaleString() },
-        { id: 'sp500', code: featuredStocks.sp500.code, format: (p) => p.toLocaleString() }
-    ];
+    let itemsToFetch = [];
+    const isManual = featuredSettings.mode === 'manual';
 
-    await Promise.all(featuredItems.map(async (item) => {
-        const result = await fetchIndividualPrice(item.code);
+    // UIの鉛筆ボタンをモードに合わせて表示/非表示にする
+    document.querySelectorAll('.btn-featured-edit').forEach(btn => {
+        // 設定ボタン(⚙️)以外の編集ボタンを制御
+        if (btn.id !== 'featured-settings-btn') {
+            btn.style.display = isManual ? 'block' : 'none';
+        }
+    });
+
+    if (isManual) {
+        itemsToFetch = [
+            { id: 'dji', code: featuredStocks.dji.code, format: (p) => `$${p.toLocaleString()}`, symbol: featuredStocks.dji.code, label: featuredStocks.dji.label },
+            { id: 'nasdaq', code: featuredStocks.nasdaq.code, format: (p) => p.toLocaleString(), symbol: featuredStocks.nasdaq.code, label: featuredStocks.nasdaq.label },
+            { id: 'sp500', code: featuredStocks.sp500.code, format: (p) => p.toLocaleString(), symbol: featuredStocks.sp500.code, label: featuredStocks.sp500.label }
+        ];
+    } else {
+        // 自動モード：ランキングを取得
+        const topStocks = await scrapeRanking(
+            featuredSettings.mode,
+            featuredSettings.filter,
+            featuredSettings.industry,
+            featuredSettings.minPrice,
+            featuredSettings.maxPrice
+        );
+
+        if (topStocks && topStocks.length > 0) {
+            const ids = ['dji', 'nasdaq', 'sp500'];
+            // 必要な分だけカードを作成
+            itemsToFetch = topStocks.map((stock, idx) => {
+                if (idx >= 3) return null;
+                return {
+                    id: ids[idx],
+                    code: stock.code,
+                    format: (p) => p.toLocaleString(),
+                    label: stock.name,
+                    symbol: stock.code
+                };
+            }).filter(item => item !== null);
+
+            // 使わないカードを隠す
+            ids.forEach((id, idx) => {
+                const card = document.getElementById(`featured-${id}`);
+                if (card) card.style.display = idx < itemsToFetch.length ? 'block' : 'none';
+            });
+        } else {
+            // 1件も見つからない場合のフォールバック（手動モードの内容を表示）
+            itemsToFetch = [
+                { id: 'dji', code: featuredStocks.dji.code, format: (p) => `$${p.toLocaleString()}`, symbol: featuredStocks.dji.code, label: featuredStocks.dji.label },
+                { id: 'nasdaq', code: featuredStocks.nasdaq.code, format: (p) => p.toLocaleString(), symbol: featuredStocks.nasdaq.code, label: featuredStocks.nasdaq.label },
+                { id: 'sp500', code: featuredStocks.sp500.code, format: (p) => p.toLocaleString(), symbol: featuredStocks.sp500.code, label: featuredStocks.sp500.label }
+            ];
+            // 全カード表示
+            ['dji', 'nasdaq', 'sp500'].forEach(id => {
+                const card = document.getElementById(`featured-${id}`);
+                if (card) card.style.display = 'block';
+            });
+        }
+    }
+
+    await Promise.all(itemsToFetch.map(async (item) => {
+        const result = await fetchIndividualPrice(item.symbol);
         if (result) {
             const priceEl = document.getElementById(`${item.id}-price`);
             const changeEl = document.getElementById(`${item.id}-change`);
             const labelEl = document.getElementById(`${item.id}-label`);
             if (priceEl && changeEl) {
+                // ドル記号などのフォーマット適用
                 priceEl.textContent = item.format(result.price);
                 changeEl.textContent = formatDayChangeDisplay(result.dayChange, result.dayChangePercent);
                 changeEl.className = 'featured-change ' + getSignClass(result.dayChange);
-                if (labelEl && result.name && result.name !== item.code) {
-                    labelEl.textContent = result.name;
-                    featuredStocks[item.id].label = result.name;
+                if (labelEl) {
+                    labelEl.textContent = item.label || result.name || item.code;
                 }
             }
         }
     }));
+}
+
+// ランキングスクレイピング
+async function scrapeRanking(mode, market, industry, minPrice, maxPrice) {
+    const type = mode.replace('auto_', '');
+    let url = `https://finance.yahoo.co.jp/stocks/ranking/${type}?_ts=${Date.now()}`;
+
+    // 市場フィルター
+    const marketMap = { 'all': 'all', 'prime': 'tseP', 'standard': 'tseS', 'growth': 'tseG' };
+    url += `&market=${marketMap[market] || 'all'}`;
+
+    // 業種フィルター
+    if (industry !== 'all') {
+        url += `&industryCode=${industry}`;
+    }
+
+    try {
+        const html = await fetchWithProxy(url);
+        if (!html) return null;
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+
+        const rows = doc.querySelectorAll('tr[class*="RankingTable__row"], .RankingTable__row, table tr:not(:first-child)');
+        const stocks = [];
+        const min = minPrice ? parseFloat(minPrice) : null;
+        const max = maxPrice ? parseFloat(maxPrice) : null;
+
+        for (const row of rows) {
+            const codeEl = row.querySelector('a[href*="/quote/"], [class*="RankingTable__code"]');
+            const nameEl = row.querySelector('[class*="RankingTable__name"], .RankingTable__name, a[href*="/quote/"] span');
+
+            if (codeEl) {
+                const href = codeEl.getAttribute('href') || '';
+                const codeMatch = href.match(/quote\/(\d{4})/);
+                const code = codeMatch ? codeMatch[1] : codeEl.textContent.trim().match(/\d{4}/)?.[0];
+
+                if (code) {
+                    // 株価の抽出をより柔軟に
+                    let price = NaN;
+                    let priceEl = row.querySelector('[class*="RankingTable__price"], .RankingTable__price');
+
+                    if (!priceEl) {
+                        // クラス名で見つからない場合は td を走査
+                        const tds = Array.from(row.querySelectorAll('td'));
+                        // 6番目(index 5)を優先的にチェック
+                        const candidates = [tds[5], tds[4], tds[6], ...tds];
+                        for (const td of candidates) {
+                            if (!td) continue;
+                            const val = parseFloat(td.textContent.replace(/,/g, ''));
+                            // コード(4桁)と同じ値でない、かつ妥当な数値なら採用
+                            if (!isNaN(val) && val !== parseInt(code)) {
+                                price = val;
+                                break;
+                            }
+                        }
+                    } else {
+                        price = parseFloat(priceEl.textContent.replace(/,/g, ''));
+                    }
+
+                    // 株価フィルター
+                    if (min !== null || max !== null) {
+                        if (!isNaN(price)) {
+                            if (min !== null && price < min) continue;
+                            if (max !== null && price > max) continue;
+                        } else {
+                            // フィルタ指定があるのに価格が判定できない場合は除外
+                            continue;
+                        }
+                    }
+
+                    let name = nameEl ? nameEl.textContent.trim() : '';
+                    if (!name && codeEl.textContent.includes(code)) {
+                        name = codeEl.textContent.replace(code, '').trim();
+                    }
+                    stocks.push({ code, name });
+                }
+            }
+            if (stocks.length >= 3) break;
+        }
+
+        // フォールバック解析：フィルターがない場合のみ、かつ1件も取れなかった場合のみ実行
+        if (stocks.length === 0 && min === null && max === null) {
+            const links = Array.from(doc.querySelectorAll('a[href*="/quote/"]'));
+            for (const link of links) {
+                const href = link.getAttribute('href') || '';
+                const codeMatch = href.match(/quote\/(\d{4})/);
+                if (codeMatch) {
+                    const code = codeMatch[1];
+                    if (!stocks.find(s => s.code === code)) {
+                        stocks.push({ code, name: link.textContent.trim().replace(code, '').trim() });
+                    }
+                }
+                if (stocks.length >= 3) break;
+            }
+        }
+
+        return stocks;
+    } catch (e) {
+        console.error('Ranking scrape failed:', e);
+        return null;
+    }
+}
+
+function openFeaturedSettingsModal() {
+    const modal = document.getElementById('featured-settings-modal');
+    if (!modal) return;
+
+    document.getElementById('featured-mode').value = featuredSettings.mode;
+    document.getElementById('featured-filter').value = featuredSettings.filter;
+    document.getElementById('featured-industry').value = featuredSettings.industry;
+    document.getElementById('featured-min-price').value = featuredSettings.minPrice || '';
+    document.getElementById('featured-max-price').value = featuredSettings.maxPrice || '';
+
+    const autoOptions = document.getElementById('featured-auto-options');
+    if (autoOptions) autoOptions.style.display = featuredSettings.mode === 'manual' ? 'none' : 'block';
+
+    modal.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+}
+
+function closeFeaturedSettingsModal() {
+    const modal = document.getElementById('featured-settings-modal');
+    if (modal) modal.style.display = 'none';
+    document.body.style.overflow = 'auto';
+}
+
+async function saveFeaturedSettingsAndUpdate() {
+    featuredSettings.mode = document.getElementById('featured-mode').value;
+    featuredSettings.filter = document.getElementById('featured-filter').value;
+    featuredSettings.industry = document.getElementById('featured-industry').value;
+    featuredSettings.minPrice = document.getElementById('featured-min-price').value;
+    featuredSettings.maxPrice = document.getElementById('featured-max-price').value;
+
+    saveFeaturedSettings();
+    closeFeaturedSettingsModal();
+
+    // 即座に更新
+    showLoadingState();
+    try {
+        await refreshMarketIndices();
+    } finally {
+        hideLoadingState();
+    }
 }
 
 async function editFeaturedStock(id) {
