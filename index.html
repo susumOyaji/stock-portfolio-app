@@ -31,29 +31,41 @@
                             <!-- NY Dow -->
                             <div class="featured-card" id="featured-dji">
                                 <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-                                    <div class="featured-label" id="dji-label">NYダウ</div>
+                                    <div style="display: flex; flex-direction: column; gap: 0.1rem;">
+                                        <div class="featured-label" id="dji-label">NYダウ</div>
+                                        <span id="dji-code" class="featured-code">^DJI</span>
+                                    </div>
                                     <button class="btn-featured-edit" onclick="editFeaturedStock('dji')">✏️</button>
                                 </div>
                                 <div id="dji-price" class="featured-price">$--,---.--</div>
                                 <div id="dji-change" class="featured-change">-- (--%)</div>
+                                <div id="dji-judgment" class="featured-judgment"></div>
                             </div>
                             <!-- Nasdaq -->
                             <div class="featured-card" id="featured-nasdaq">
                                 <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-                                    <div class="featured-label" id="nasdaq-label">Nasdaq</div>
+                                    <div style="display: flex; flex-direction: column; gap: 0.1rem;">
+                                        <div class="featured-label" id="nasdaq-label">Nasdaq</div>
+                                        <span id="nasdaq-code" class="featured-code">^IXIC</span>
+                                    </div>
                                     <button class="btn-featured-edit" onclick="editFeaturedStock('nasdaq')">✏️</button>
                                 </div>
                                 <div id="nasdaq-price" class="featured-price">--,---.--</div>
                                 <div id="nasdaq-change" class="featured-change">-- (--%)</div>
+                                <div id="nasdaq-judgment" class="featured-judgment"></div>
                             </div>
                             <!-- S&P 500 -->
                             <div class="featured-card" id="featured-sp500">
                                 <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-                                    <div class="featured-label" id="sp500-label">S&P 500</div>
+                                    <div style="display: flex; flex-direction: column; gap: 0.1rem;">
+                                        <div class="featured-label" id="sp500-label">S&P 500</div>
+                                        <span id="sp500-code" class="featured-code">^GSPC</span>
+                                    </div>
                                     <button class="btn-featured-edit" onclick="editFeaturedStock('sp500')">✏️</button>
                                 </div>
                                 <div id="sp500-price" class="featured-price">-,---.--</div>
                                 <div id="sp500-change" class="featured-change">-- (--%)</div>
+                                <div id="sp500-judgment" class="featured-judgment"></div>
                             </div>
                         </div>
 

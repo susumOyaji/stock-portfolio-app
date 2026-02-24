@@ -1169,6 +1169,7 @@ async function refreshMarketIndices() {
             const priceEl = document.getElementById(`${item.id}-price`);
             const changeEl = document.getElementById(`${item.id}-change`);
             const labelEl = document.getElementById(`${item.id}-label`);
+            const codeEl = document.getElementById(`${item.id}-code`);
             if (priceEl && changeEl) {
                 // ドル記号などのフォーマット適用
                 priceEl.textContent = item.format(result.price);
@@ -1177,9 +1178,238 @@ async function refreshMarketIndices() {
                 if (labelEl) {
                     labelEl.textContent = item.label || result.name || item.code;
                 }
+                // 企業コードを表示
+                if (codeEl) {
+                    codeEl.textContent = item.code || item.symbol || '';
+                }
             }
         }
     }));
+
+    // 購入可否判定（非同期・バックグラウンド実行）
+    runAllBuyJudgments(itemsToFetch);
+}
+
+/* =======================================================
+ * 購入可否判定ロジック（canBuyNewStock）
+ * 日本株・中短期向け裁量ゼロ判定
+ * ======================================================= */
+
+// --- ヒストリカルデータキャッシュ ---
+const _historyCache = new Map(); // code -> { data, ts }
+const _HISTORY_TTL = 30 * 60 * 1000; // 30分
+
+async function fetchHistoricalData(code) {
+    const cached = _historyCache.get(code);
+    if (cached && Date.now() - cached.ts < _HISTORY_TTL) return cached.data;
+
+    // Yahoo Finance v8 chart API（3ヶ月・日足）
+    let symbol = code;
+    if (/^\d{4}$/.test(code)) symbol = `${code}.T`;
+    else if (code === '^N225') symbol = '998407.O';
+    else if (code === '^DJI') symbol = '%5EDJI';
+    else if (code === '^IXIC') symbol = '%5EIXIC';
+    else if (code === '^GSPC') symbol = '%5EGSPC';
+
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=3mo&interval=1d&_ts=${Date.now()}`;
+    try {
+        const text = await fetchWithProxy(url);
+        if (!text) return null;
+        const json = JSON.parse(text);
+        const result = json.chart?.result?.[0];
+        if (!result) return null;
+
+        const timestamps = result.timestamp || [];
+        const q = result.indicators.quote[0] || {};
+        const data = timestamps.map((ts, i) => ({
+            date: new Date(ts * 1000),
+            close: q.close[i],
+            volume: q.volume[i],
+            open: q.open[i],
+            high: q.high[i],
+            low: q.low[i],
+        })).filter(d => d.close != null && d.volume != null);
+
+        _historyCache.set(code, { data, ts: Date.now() });
+        return data;
+    } catch (e) {
+        console.warn(`[History] Fetch failed for ${code}:`, e);
+        return null;
+    }
+}
+
+// --- 移動平均 ---
+function movingAverage(data, period, key = 'close') {
+    if (!data || data.length < period) return null;
+    return data.slice(-period).reduce((sum, d) => sum + d[key], 0) / period;
+}
+
+// --- 判定1: 地合い（指数が25日線の上） ---
+function isMarketOK(indexData) {
+    const price = indexData.at(-1).close;
+    const ma25 = movingAverage(indexData, 25);
+    return ma25 !== null && price > ma25 * 1.0; // ちょうど乗っているケースもOK
+}
+
+// --- 判定2: 上昇トレンド（株価>MA25、かつMA25上向き） ---
+function isUpTrend(stockData) {
+    if (stockData.length < 26) return false;
+    const price = stockData.at(-1).close;
+    const ma25 = movingAverage(stockData, 25);
+    const ma25Prev = movingAverage(stockData.slice(0, -1), 25);
+    return ma25 !== null && ma25Prev !== null && price > ma25 && ma25 > ma25Prev;
+}
+
+// --- 判定3: 出来高（20日平均比120%以上） ---
+function isVolumeValid(stockData) {
+    const today = stockData.at(-1);
+    const avgVol = movingAverage(stockData, 20, 'volume');
+    return avgVol !== null && today.volume >= avgVol * 1.2;
+}
+
+// --- 判定4: 需給・イベント ---
+function isSupplyDemandOK({ creditRatio = 0, earningsSoon = false }) {
+    if (creditRatio > 10) return false;
+    if (earningsSoon) return false;
+    return true;
+}
+
+// --- 判定5: リスク（MA25からの乖離が5%以内） ---
+function hasAcceptableRisk(stockData) {
+    const price = stockData.at(-1).close;
+    const ma25 = movingAverage(stockData, 25);
+    if (!ma25) return false;
+    const riskPct = (price - ma25) / ma25; // ✅ 分母はma25が正しい
+    return riskPct <= 0.05;
+}
+
+// --- 最終判定 ---
+function canBuyNewStock({ stockData, indexData, creditRatio = 0, earningsSoon = false }) {
+    if (!indexData || !isMarketOK(indexData))
+        return { buy: false, reason: '地合いNG（指数25日線下）' };
+    if (!stockData || !isUpTrend(stockData))
+        return { buy: false, reason: 'トレンドNG' };
+    if (!isVolumeValid(stockData))
+        return { buy: false, reason: '出来高不足' };
+    if (!isSupplyDemandOK({ creditRatio, earningsSoon }))
+        return { buy: false, reason: '需給・決算NG' };
+    if (!hasAcceptableRisk(stockData))
+        return { buy: false, reason: 'リスク幅超過(>5%)' };
+    return { buy: true, reason: '全条件クリア' };
+}
+
+// --- 地合い判定用の日経インデックスキャッシュ ---
+let _nikkeiHistoryCache = null;
+let _nikkeiHistoryTs = 0;
+
+async function getNikkeiHistory() {
+    if (_nikkeiHistoryCache && Date.now() - _nikkeiHistoryTs < _HISTORY_TTL) {
+        return _nikkeiHistoryCache;
+    }
+    const data = await fetchHistoricalData('^N225');
+    if (data) {
+        _nikkeiHistoryCache = data;
+        _nikkeiHistoryTs = Date.now();
+    }
+    return _nikkeiHistoryCache;
+}
+
+// --- 判定をカードに反映 ---
+function renderJudgment(id, result) {
+    const el = document.getElementById(`${id}-judgment`);
+    if (!el) return;
+    if (!result) {
+        el.innerHTML = '';
+        return;
+    }
+    if (result.buy) {
+        el.innerHTML = `<span class="judgment-ok">✅ 購入OK</span>`;
+    } else {
+        el.innerHTML = `<span class="judgment-ng">⚠️ ${result.reason}</span>`;
+    }
+}
+
+// --- 全注目株に対して判定を並列実行 ---
+async function runAllBuyJudgments(items) {
+    // 地合い判定用に日経データを取得
+    const nikkeiData = await getNikkeiHistory();
+
+    await Promise.all(items.map(async (item) => {
+        const judgeEl = document.getElementById(`${item.id}-judgment`);
+        if (!judgeEl) return;
+
+        // 判定中表示
+        judgeEl.innerHTML = `<span class="judgment-loading">判定中...</span>`;
+
+        const stockData = await fetchHistoricalData(item.code);
+        if (!stockData || stockData.length < 25) {
+            judgeEl.innerHTML = `<span class="judgment-loading">データ不足</span>`;
+            return;
+        }
+
+        const result = canBuyNewStock({
+            stockData,
+            indexData: nikkeiData,
+            creditRatio: 0,   // 信用倍率は外部データが必要なため0（常にOK）
+            earningsSoon: false, // 決算情報は外部データが必要なためfalse
+        });
+
+        renderJudgment(item.id, result);
+        console.log(`[Judgment] ${item.code} (${item.label}): ${result.buy ? 'BUY' : 'NG'} - ${result.reason}`);
+    }));
+}
+
+
+// 東証の証券コードレンジから業種を判定するマッピング
+// Yahoo Japan Finance の industryCode (33業種コード) と証券コード範囲の対応表
+// 参考: 東証の業種別コード体系に基づく（おおよその目安として使用）
+const INDUSTRY_CODE_RANGES = {
+    '1050': [1300, 1399], // 水産・農林業
+    '1100': [1400, 1499], // 鉱業
+    '2050': [1500, 1999], // 建設業 (1500〜1999)
+    '3050': [2000, 2999], // 食料品 (2000〜2999)
+    '3100': [3000, 3099], // 繊維製品
+    '3150': [3800, 3849], // パルプ・紙
+    '3200': [4000, 4099], // 化学
+    '3250': [4500, 4599], // 医薬品
+    '3300': [5100, 5199], // ゴム製品
+    '3350': [5200, 5299], // ガラス・土石製品
+    '3400': [5400, 5499], // 鉄鋼
+    '3450': [5700, 5799], // 非鉄金属
+    '3500': [5900, 5999], // 金属製品
+    '3600': [6000, 6499], // 機械
+    '3650': [6500, 6999], // 電気機器
+    '3700': [7000, 7299], // 輸送用機器
+    '3750': [7300, 7499], // 精密機器
+    '3800': [7500, 7999], // その他製品
+    '4050': [9500, 9599], // 電気・ガス業
+    '5050': [9000, 9099], // 陸運業
+    '5100': [9100, 9139], // 海運業
+    '5150': [9200, 9249], // 空運業
+    '5200': [9300, 9369], // 倉庫・運輸関連業
+    '5250': [4700, 4999], // 情報・通信業
+    '6050': [8000, 8099], // 卸売業
+    '6100': [8100, 8299], // 小売業
+    '7050': [8300, 8399], // 銀行業
+    '7100': [8500, 8599], // 証券業
+    '7150': [8600, 8699], // 保険業
+    '7200': [8700, 8799], // その他金融業
+    '8050': [8800, 8999], // 不動産業
+    '9050': [9600, 9999], // サービス業
+};
+
+/**
+ * 銘柄コードから業種コード（industryCode）に属するかを判定
+ * Yahoo Finance のランキングはJS動的レンダリングのため、
+ * サーバー側では業種フィルターが反映されない。
+ * そのため取得後にクライアント側でフィルタリングを行う。
+ */
+function matchesIndustryCode(stockCode, industryCode) {
+    if (!industryCode || industryCode === 'all') return true;
+    const range = INDUSTRY_CODE_RANGES[industryCode];
+    if (!range) return true; // 未定義の業種コードは除外せず通過させる
+    const code = parseInt(stockCode, 10);
+    return code >= range[0] && code <= range[1];
 }
 
 // ランキングスクレイピング
@@ -1191,10 +1421,15 @@ async function scrapeRanking(mode, market, industry, minPrice, maxPrice) {
     const marketMap = { 'all': 'all', 'prime': 'tseP', 'standard': 'tseS', 'growth': 'tseG' };
     url += `&market=${marketMap[market] || 'all'}`;
 
-    // 業種フィルター
+    // 業種フィルター（URLパラメータとして送ることも試みる）
+    // ※ Yahoo Japan FinanceはJS動的レンダリングのためサーバー側では無視される場合があるが、
+    //   将来的にサーバー側で対応された場合への備えとして残す。
+    //   実際のフィルタリングはスクレイプ後にクライアント側で行う。
     if (industry !== 'all') {
         url += `&industryCode=${industry}`;
     }
+
+    console.log(`[scrapeRanking] URL: ${url}, industry: ${industry}`);
 
     try {
         const html = await fetchWithProxy(url);
@@ -1202,11 +1437,16 @@ async function scrapeRanking(mode, market, industry, minPrice, maxPrice) {
         const doc = new DOMParser().parseFromString(html, 'text/html');
 
         const rows = doc.querySelectorAll('tr[class*="RankingTable__row"], .RankingTable__row, table tr:not(:first-child)');
-        const stocks = [];
+        const allStocks = [];
         const min = minPrice ? parseFloat(minPrice) : null;
         const max = maxPrice ? parseFloat(maxPrice) : null;
 
+        // 十分な候補を確保するため、業種フィルターがある場合は多めに取得する
+        const collectLimit = (industry !== 'all') ? 100 : 50;
+
         for (const row of rows) {
+            if (allStocks.length >= collectLimit) break;
+
             const codeEl = row.querySelector('a[href*="/quote/"], [class*="RankingTable__code"]');
             const nameEl = row.querySelector('[class*="RankingTable__name"], .RankingTable__name, a[href*="/quote/"] span');
 
@@ -1253,29 +1493,38 @@ async function scrapeRanking(mode, market, industry, minPrice, maxPrice) {
                     if (!name && codeEl.textContent.includes(code)) {
                         name = codeEl.textContent.replace(code, '').trim();
                     }
-                    stocks.push({ code, name });
+                    allStocks.push({ code, name, price });
                 }
             }
-            if (stocks.length >= 3) break;
         }
 
-        // フォールバック解析：フィルターがない場合のみ、かつ1件も取れなかった場合のみ実行
-        if (stocks.length === 0 && min === null && max === null) {
+        // フォールバック解析：まだ取れていない場合
+        if (allStocks.length === 0) {
             const links = Array.from(doc.querySelectorAll('a[href*="/quote/"]'));
             for (const link of links) {
                 const href = link.getAttribute('href') || '';
                 const codeMatch = href.match(/quote\/(\d{4})/);
                 if (codeMatch) {
                     const code = codeMatch[1];
-                    if (!stocks.find(s => s.code === code)) {
-                        stocks.push({ code, name: link.textContent.trim().replace(code, '').trim() });
+                    if (!allStocks.find(s => s.code === code)) {
+                        allStocks.push({ code, name: link.textContent.trim().replace(code, '').trim() });
                     }
                 }
-                if (stocks.length >= 3) break;
+                if (allStocks.length >= collectLimit) break;
             }
         }
 
-        return stocks;
+        // ★クライアント側業種フィルター★
+        // Yahoo Japan Finance のランキングはJSレンダリングのため，
+        // URLの industryCode パラメータがサーバー側で反映されないことがある。
+        // そのため，取得した銘柄コードのレンジで業種を判定してフィルタリングする。
+        let filteredStocks = allStocks;
+        if (industry !== 'all') {
+            filteredStocks = allStocks.filter(s => matchesIndustryCode(s.code, industry));
+            console.log(`[scrapeRanking] Industry filter '${industry}': ${allStocks.length}件 → ${filteredStocks.length}件`);
+        }
+
+        return filteredStocks.slice(0, 3);
     } catch (e) {
         console.error('Ranking scrape failed:', e);
         return null;
@@ -1334,7 +1583,9 @@ async function editFeaturedStock(id) {
 
         // 該当カードを「取得中」表示に
         const priceEl = document.getElementById(`${id}-price`);
+        const codeEl = document.getElementById(`${id}-code`);
         if (priceEl) priceEl.textContent = '取得中...';
+        if (codeEl) codeEl.textContent = newCode.trim();
 
         // 即座に更新
         const result = await fetchIndividualPrice(featuredStocks[id].code);
@@ -1351,6 +1602,8 @@ async function editFeaturedStock(id) {
                 changeEl.textContent = formatDayChangeDisplay(result.dayChange, result.dayChangePercent);
                 changeEl.className = 'featured-change ' + getSignClass(result.dayChange);
             }
+            // 企業コードを更新
+            if (codeEl) codeEl.textContent = featuredStocks[id].code;
             saveFeaturedData();
         }
     }
