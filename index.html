@@ -18,20 +18,19 @@
     <div class="container">
         <header>
             <div class="header-main">
-                <div class="header-info" style="flex: 1;">
-                    <div style="display: flex; align-items: center; gap: 0.8rem;">
+                <div class="header-info flex-1">
+                    <div class="flex-center gap-medium">
                         <h1>Stock Portfolio Manager(Scraping JSON-LD/Meta Tags)</h1>
                         <button id="featured-settings-btn" class="btn-featured-edit"
-                            style="opacity: 1; width: 28px; height: 28px;" title="自動表示設定">⚙️</button>
+                            title="自動表示設定">⚙️</button>
                     </div>
                     <!-- Featured Stocks Section -->
-                    <div class="featured-section"
-                        style="margin-top: 1.5rem; display: flex; align-items: stretch; gap: 1rem;">
-                        <div id="featured-stocks-list" class="featured-grid" style="flex: 1;">
+                    <div class="featured-section mt-1-5 flex-stretch">
+                        <div id="featured-stocks-list" class="featured-grid flex-1">
                             <!-- NY Dow -->
                             <div class="featured-card" id="featured-dji">
-                                <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-                                    <div style="display: flex; flex-direction: column; gap: 0.1rem;">
+                                <div class="flex-between">
+                                    <div class="flex-column">
                                         <div class="featured-label" id="dji-label">NYダウ</div>
                                         <span id="dji-code" class="featured-code">^DJI</span>
                                     </div>
@@ -43,8 +42,8 @@
                             </div>
                             <!-- Nasdaq -->
                             <div class="featured-card" id="featured-nasdaq">
-                                <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-                                    <div style="display: flex; flex-direction: column; gap: 0.1rem;">
+                                <div class="flex-between">
+                                    <div class="flex-column">
                                         <div class="featured-label" id="nasdaq-label">Nasdaq</div>
                                         <span id="nasdaq-code" class="featured-code">^IXIC</span>
                                     </div>
@@ -56,8 +55,8 @@
                             </div>
                             <!-- S&P 500 -->
                             <div class="featured-card" id="featured-sp500">
-                                <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-                                    <div style="display: flex; flex-direction: column; gap: 0.1rem;">
+                                <div class="flex-between">
+                                    <div class="flex-column">
                                         <div class="featured-label" id="sp500-label">S&P 500</div>
                                         <span id="sp500-code" class="featured-code">^GSPC</span>
                                     </div>
@@ -70,18 +69,17 @@
                         </div>
 
                         <!-- Header Actions (Integrated) -->
-                        <div class="header-actions"
-                            style="display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 0.5rem; padding: 0.5rem; background: var(--glass); border: 1px solid var(--border); border-radius: 1rem; min-width: 120px;">
-                            <div style="display: flex; align-items: center; gap: 0.5rem;">
-                                <select id="update-interval"
-                                    style="background: transparent; border: 1px solid var(--border); color: var(--text-muted); padding: 0.2rem 0.3rem; border-radius: 0.4rem; font-size: 0.65rem; cursor: pointer; outline: none;">
+                        <div class="header-actions">
+                            <div class="flex-center">
+                                <select id="update-interval" aria-label="更新間隔を選択"
+                                    class="select-styled">
                                     <option value="0">オフ</option>
                                     <option value="1">1分</option>
                                     <option value="2" selected>2分</option>
                                     <option value="5">5分</option>
                                 </select>
                                 <button id="refresh-all-btn" class="btn-icon btn-edit"
-                                    style="width: 32px; height: 32px;" title="情報を一括更新">
+                                    title="情報を一括更新">
                                     <svg id="refresh-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16"
                                         viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
                                         stroke-linecap="round" stroke-linejoin="round">
@@ -93,7 +91,7 @@
                                 </button>
                             </div>
                             <p id="last-updated"
-                                style="font-size: 0.6rem; color: var(--text-muted); margin: 0; white-space: nowrap;">
+                                class="text-sm text-muted">
                                 最終更新: --:--:--</p>
                         </div>
                     </div>
@@ -106,12 +104,12 @@
             <div class="card">
                 <div class="card-label">総評価額</div>
                 <div id="total-valuation" class="card-value">¥0</div>
-                <div id="total-day-change" style="font-size: 0.85rem; margin-top: 0.4rem; font-weight: 600;"></div>
+                <div id="total-day-change" class="mt-1 form-value-display"></div>
             </div>
             <div class="card">
                 <div class="card-label">合計損益</div>
                 <div id="total-profit-loss" class="card-value">¥0</div>
-                <div id="total-profit-rate" style="font-size: 0.85rem; margin-top: 0.4rem; font-weight: 600;"></div>
+                <div id="total-profit-rate" class="mt-1 form-value-display"></div>
             </div>
             <div class="card">
                 <div class="card-label">日経平均</div>
@@ -127,38 +125,37 @@
 
         <!-- Featured Settings Modal -->
         <div id="featured-settings-modal" class="modal-overlay">
-            <div class="card form-modal" style="max-width: 500px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
-                    <h2 style="font-size: 1.25rem;">注目株の自動表示設定</h2>
-                    <button id="featured-modal-close" class="btn-icon"
-                        style="border: none; background: transparent; font-size: 1.2rem; color: var(--text-muted); cursor: pointer;">✕</button>
+            <div class="card form-modal form-modal-wrapper">
+                <div class="flex-between mb-1-5">
+                    <h2 class="text-lg">注目株の自動表示設定</h2>
+                    <button id="featured-modal-close" class="btn-icon btn-transparent btn-close">✕</button>
                 </div>
-                <div class="form-grid" style="grid-template-columns: 1fr;">
+                <div class="form-grid form-grid-auto">
                     <div class="form-group">
                         <label>表示モード</label>
-                        <select id="featured-mode"
-                            style="background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border); border-radius: 0.75rem; padding: 0.85rem; color: var(--text-main); font-size: 1rem; cursor: pointer; outline: none;">
+                        <select id="featured-mode" aria-label="注目株の表示モード"
+                            class="select-form">
                             <option value="manual">手動設定（固定）</option>
                             <option value="auto_volume">自動：出来高ランキング</option>
                             <option value="auto_up">自動：値上がり率ランキング</option>
                             <option value="auto_tradingValue">自動：売買代金ランキング</option>
                         </select>
                     </div>
-                    <div id="featured-auto-options" style="display: none;">
-                        <div class="form-group" style="margin-top: 1rem;">
+                    <div id="featured-auto-options">
+                        <div class="form-group mt-1">
                             <label>市場フィルター</label>
-                            <select id="featured-filter"
-                                style="background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border); border-radius: 0.75rem; padding: 0.85rem; color: var(--text-main); font-size: 1rem; cursor: pointer; outline: none;">
+                            <select id="featured-filter" aria-label="市場を選択"
+                                class="select-form">
                                 <option value="all">全市場</option>
                                 <option value="prime">東証プライム</option>
                                 <option value="standard">東証スタンダード</option>
                                 <option value="growth">東証グロース</option>
                             </select>
                         </div>
-                        <div class="form-group" style="margin-top: 1rem;">
+                        <div class="form-group mt-1">
                             <label>業種フィルター</label>
-                            <select id="featured-industry"
-                                style="background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border); border-radius: 0.75rem; padding: 0.85rem; color: var(--text-main); font-size: 1rem; cursor: pointer; outline: none;">
+                            <select id="featured-industry" aria-label="業種を選択"
+                                class="select-form">
                                 <option value="all">全業種</option>
                                 <option value="3650">電気機器</option>
                                 <option value="3700">輸送用機器</option>
@@ -176,23 +173,23 @@
                                 <option value="3050">食料品</option>
                             </select>
                         </div>
-                        <div class="form-group" style="margin-top: 1rem;">
+                        <div class="form-group mt-1">
                             <label>株価の範囲 (¥)</label>
-                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            <div class="flex-center gap-small">
                                 <input type="number" id="featured-min-price" placeholder="下限なし"
-                                    style="flex: 1; background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border); border-radius: 0.75rem; padding: 0.85rem; color: var(--text-main); font-size: 1rem;">
-                                <span style="color: var(--text-muted);">〜</span>
+                                    class="flex-1 form-group-input">
+                                <span class="text-muted">〜</span>
                                 <input type="number" id="featured-max-price" placeholder="上限なし"
-                                    style="flex: 1; background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border); border-radius: 0.75rem; padding: 0.85rem; color: var(--text-main); font-size: 1rem;">
+                                    class="flex-1 form-group-input">
                             </div>
                         </div>
                     </div>
                     <div
-                        style="margin-top: 1.2rem; padding: 0.8rem; background: rgba(250, 204, 21, 0.1); border: 1px solid var(--warning); border-radius: 0.5rem; font-size: 0.75rem; color: var(--warning);">
+                        class="mt-1 alert-warning">
                         ※自動表示中は、現在のリストにある銘柄が一時的に上書きされます。手動に戻すと元の設定に戻ります。
                     </div>
-                    <div style="margin-top: 1.5rem; display: flex; gap: 0.5rem;">
-                        <button id="save-featured-settings" class="btn-add" style="flex: 1;">適用する</button>
+                    <div class="mt-1-5 flex-center gap-small">
+                        <button id="save-featured-settings" class="btn-add flex-1">適用する</button>
                     </div>
                 </div>
             </div>
@@ -201,10 +198,9 @@
         <!-- Floating Add Stock Modal -->
         <div id="modal-overlay" class="modal-overlay">
             <div class="card form-modal">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
-                    <h2 id="modal-title" style="font-size: 1.25rem;">銘柄の追加</h2>
-                    <button id="modal-close" class="btn-icon"
-                        style="border: none; background: transparent; font-size: 1.2rem; color: var(--text-muted); cursor: pointer;">✕</button>
+                <div class="flex-between mb-1-5">
+                    <h2 id="modal-title" class="text-lg">銘柄の追加</h2>
+                    <button id="modal-close" class="btn-icon btn-transparent btn-close">✕</button>
                 </div>
                 <form id="stock-form" class="form-grid">
                     <div class="form-group">
@@ -227,11 +223,9 @@
                         <label for="current-price">現在価格 (¥)</label>
                         <input type="number" id="current-price" step="any" placeholder="0.00" required>
                     </div>
-                    <div class="form-actions"
-                        style="display: flex; gap: 0.5rem; align-items: end; grid-column: 1 / -1;">
-                        <button type="submit" id="submit-btn" class="btn-add" style="flex: 1;">追加</button>
-                        <button type="button" id="cancel-btn" class="btn-add"
-                            style="flex: 1; display: none;">キャンセル</button>
+                    <div class="form-actions flex-center gap-small">
+                        <button type="submit" id="submit-btn" class="btn-add flex-1">追加</button>
+                        <button type="button" id="cancel-btn" class="btn-add flex-1">キャンセル</button>
                     </div>
                 </form>
             </div>
